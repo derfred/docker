@@ -14,6 +14,13 @@ import (
 	"strings"
 )
 
+type MountMethod int
+
+const (
+        MountMethodAUFS MountMethod = iota
+	MountMethodDeviceMapper
+)
+
 type Capabilities struct {
 	MemoryLimit            bool
 	SwapLimit              bool
@@ -34,6 +41,8 @@ type Runtime struct {
 	volumes        *Graph
 	srv            *Server
 	Dns            []string
+	volumeSet      *VolumeSet
+	mountMethod    MountMethod
 }
 
 var sysInitPath string
@@ -58,6 +67,22 @@ func (runtime *Runtime) getContainerElement(id string) *list.Element {
 		}
 	}
 	return nil
+}
+
+func (runtime *Runtime) GetMountMethod() MountMethod {
+	return runtime.mountMethod
+}
+
+
+func (runtime *Runtime) GetVolumeSet() (*VolumeSet, error) {
+	if runtime.volumeSet == nil {
+		volumeSet, err := NewVolumeSet(runtime.root)
+		if volumeSet == nil {
+			return nil, err
+		}
+		runtime.volumeSet = volumeSet
+	}
+	return runtime.volumeSet, nil
 }
 
 func (runtime *Runtime) Get(name string) *Container {
@@ -258,6 +283,9 @@ func (runtime *Runtime) UpdateCapabilities(quiet bool) {
 	if runtime.capabilities.IPv4ForwardingDisabled && !quiet {
 		log.Printf("WARNING: IPv4 forwarding is disabled.")
 	}
+
+	// TODO: Automatically pick mount method
+	runtime.mountMethod = MountMethodDeviceMapper
 }
 
 // FIXME: harmonize with NewGraph()
