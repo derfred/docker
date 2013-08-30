@@ -507,6 +507,29 @@ func (volumes *VolumeSet) initDevmapper() error {
 			return err
 		}
 
+		tmpDir := path.Join(volumes.loopbackDir(), "basefs")
+		if err = os.MkdirAll(tmpDir, 0700); err != nil && !os.IsExist(err) {
+			return err
+		}
+
+		err = volumes.MountVolume(BaseVolumeHash, tmpDir)
+		if err != nil {
+			return err
+		}
+
+		if f, err := os.OpenFile(path.Join(tmpDir, ".dockerinit"), os.O_CREATE, 0755); err != nil {
+			_ = Unmount(tmpDir)
+			return err
+		} else {
+			f.Close()
+		}
+
+		err = Unmount(tmpDir)
+		if err != nil {
+			return err
+		}
+
+		_ = os.Remove (tmpDir)
 	} else {
 		err = volumes.loadMetaData()
 		if err != nil {
