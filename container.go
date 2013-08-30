@@ -1083,7 +1083,7 @@ func (container *Container) Mount() error {
 	if err != nil {
 		return err
 	}
-	return image.Mount(container.RootfsPath(), container.rwPath())
+	return image.Mount(container.runtime, container.RootfsPath(), container.rwPath())
 }
 
 func (container *Container) Changes() ([]Change, error) {
