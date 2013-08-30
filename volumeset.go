@@ -556,6 +556,10 @@ func (volumes *VolumeSet) MountVolume(hash, path string) error {
 	return nil
 }
 
+func (volumes *VolumeSet) HasVolume(hash string) bool {
+	info := volumes.Devices[hash]
+	return info != nil
+}
 
 func NewVolumeSet(root string) (*VolumeSet, error) {
 	devmapper.SetDevDir("/dev");
