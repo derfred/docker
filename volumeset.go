@@ -34,12 +34,12 @@ type VolumeSet struct {
 	nextFreeDevice int
 }
 
-func (volumes *VolumeSet) volumesDir() string {
-	return path.Join(volumes.root, "volumes")
+func (volumes *VolumeSet) loopbackDir() string {
+	return path.Join(volumes.root, "loopback")
 }
 
 func (volumes *VolumeSet) jsonFile() string {
-	return path.Join(volumes.volumesDir(), "json")
+	return path.Join(volumes.loopbackDir(), "json")
 }
 
 func (volumes *VolumeSet) getDevName(name string) string {
@@ -91,7 +91,7 @@ func (volumes *VolumeSet) getInfo(name string) (*devmapper.Info, error) {
 }
 
 func (volumes *VolumeSet) hasImage(name string) bool {
-	dirname := volumes.volumesDir()
+	dirname := volumes.loopbackDir()
 	filename := path.Join(dirname, name)
 
 	_, err := os.Stat(filename)
@@ -100,7 +100,7 @@ func (volumes *VolumeSet) hasImage(name string) bool {
 
 
 func (volumes *VolumeSet) ensureImage(name string, size int64) (string, error) {
-	dirname := volumes.volumesDir()
+	dirname := volumes.loopbackDir()
 	filename := path.Join(dirname, name)
 
 	if err := os.MkdirAll(dirname, 0700); err != nil && !os.IsExist(err) {
