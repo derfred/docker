@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -136,6 +137,11 @@ func jsonPath(root string) string {
 	return path.Join(root, "json")
 }
 
+func mountPath(root string) string {
+	return path.Join(root, "mount")
+}
+
+
 func MountAUFS(ro []string, rw string, target string) error {
 	// FIXME: Now mount the layers
 	rwBranch := fmt.Sprintf("%v=rw", rw)
@@ -170,25 +176,234 @@ func (image *Image) TarLayer(compression Compression) (Archive, error) {
 	return Tar(layerPath, compression)
 }
 
-func (image *Image) Mount(runtime *Runtime, root, rw string) error {
+func (image *Image) applyLayer(layer, target string) error {
+	err := filepath.Walk(layer, func(srcPath string, f os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip root
+		if srcPath == layer {
+			return nil
+		}
+
+		var srcStat syscall.Stat_t
+		err = syscall.Lstat(srcPath, &srcStat)
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(layer, srcPath)
+		if err != nil {
+			return err
+		}
+
+		targetPath := filepath.Join(target, relPath)
+
+
+		// Skip AUFS metadata
+		if matched, err := filepath.Match("/.wh..wh.*", relPath); err != nil || matched {
+			return err
+		}
+
+		// Find out what kind of modification happened
+		file := filepath.Base(srcPath)
+
+		// If there is a whiteout, then the file was removed
+		if strings.HasPrefix(file, ".wh.") {
+			originalFile := file[len(".wh."):]
+			deletePath := filepath.Join(filepath.Dir(targetPath), originalFile)
+
+			err = os.RemoveAll(deletePath)
+			if err != nil {
+				return err
+			}
+		} else {
+			var targetStat = &syscall.Stat_t{}
+			err := syscall.Lstat(targetPath, targetStat)
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+
+			if targetStat != nil && (targetStat.Mode & syscall.S_IFDIR == 0 || srcStat.Mode & syscall.S_IFDIR == 0) {
+				// Unless both src and dest are directories we remove the target and recreate it
+				// This is a bit wasteful in the case of only a mode change, but that is unlikely
+				// to matter much
+				err = os.RemoveAll(targetPath)
+				if err != nil {
+					return err
+				}
+				targetStat = nil
+			}
+
+			if f.IsDir() {
+				// Source is a directory
+				if targetStat == nil {
+					err = syscall.Mkdir(targetPath, srcStat.Mode & 07777)
+					if err != nil {
+						return err
+					}
+				} else if (srcStat.Mode & 07777 != targetStat.Mode & 07777) {
+					err = syscall.Chmod(targetPath, srcStat.Mode & 07777)
+					if err != nil {
+						return err
+					}
+				}
+			} else if srcStat.Mode & syscall.S_IFLNK == syscall.S_IFLNK {
+				// Source is symlink
+				link, err := os.Readlink(srcPath)
+				if err != nil {
+					return err
+				}
+
+				err = os.Symlink(link, targetPath)
+				if err != nil {
+					return err
+				}
+			} else if srcStat.Mode & syscall.S_IFBLK == syscall.S_IFBLK ||
+				srcStat.Mode & syscall.S_IFCHR == syscall.S_IFCHR ||
+				srcStat.Mode & syscall.S_IFIFO == syscall.S_IFIFO ||
+				srcStat.Mode & syscall.S_IFSOCK == syscall.S_IFSOCK {
+				// Source is special file
+				err = syscall.Mknod(targetPath, srcStat.Mode, int(srcStat.Dev))
+				if err != nil {
+					return err
+				}
+			} else if srcStat.Mode & syscall.S_IFREG == syscall.S_IFREG {
+				// Source is regular file
+				fd, err := syscall.Open(targetPath, syscall.O_CREAT | syscall.O_WRONLY, srcStat.Mode & 07777)
+				if err != nil {
+					return err
+				}
+				dstFile := os.NewFile(uintptr(fd), targetPath)
+				srcFile, err := os.Open(srcPath)
+				_, err = io.Copy(dstFile, srcFile)
+				if err != nil {
+					return err
+				}
+				_ = srcFile.Close()
+				_ = dstFile.Close()
+			} else {
+				return fmt.Errorf("Unknown type for file %s", srcPath)
+			}
+
+			if srcStat.Mode & syscall.S_IFLNK != syscall.S_IFLNK {
+				// Todo: Update uid and gid
+				// TODO: Update mtime
+			}
+
+		}
+		return nil
+	})
+	return err
+}
+
+func (image *Image) ensureVolume(volumes *VolumeSet) error {
+	if volumes.HasVolume(image.ID) {
+		return nil
+	}
+
+	if image.Parent != "" && !volumes.HasVolume(image.Parent) {
+		parentImg, err := image.GetParent()
+		if err != nil {
+			return fmt.Errorf("Error while getting parent image: %v", err)
+		}
+		err = parentImg.ensureVolume(volumes)
+		if err != nil {
+			return err
+		}
+	}
+
+	root, err := image.root()
+	if err != nil {
+		return err
+	}
+
+	mountDir := mountPath(root)
+	if err := os.Mkdir(mountDir, 0600); err != nil && !os.IsExist(err) {
+		return err
+	}
+
+	mounted, err := Mounted(mountDir)
+	if err != nil {
+		return err
+	}
+
+	if mounted {
+		return fmt.Errorf("Image %s inexpectedly already mounted", image.ID)
+	}
+
+	parentID := image.Parent
+	if parentID == "" {
+		parentID = BaseVolumeHash
+	}
+
+	log.Printf("Creating demove-mapper volume for image id %s", image.ID)
+
+	err = volumes.AddVolume(image.ID, parentID)
+	if err != nil {
+		return err
+	}
+
+	// TODO remove volume if initialization failed before done
+
+	err = volumes.MountVolume(image.ID, mountDir)
+	if err != nil {
+		return err
+	}
+
+	err = image.applyLayer(layerPath(root), mountDir)
+	if err != nil {
+		return err
+	}
+
+	Unmount(mountDir)
+
+	return nil
+}
+
+
+func (image *Image) Mount(runtime *Runtime, root, rw string, id string) error {
 	if mounted, err := Mounted(root); err != nil {
 		return err
 	} else if mounted {
 		return fmt.Errorf("%s is already mounted", root)
 	}
-	layers, err := image.layers()
-	if err != nil {
-		return err
-	}
 	// Create the target directories if they don't exist
 	if err := os.Mkdir(root, 0755); err != nil && !os.IsExist(err) {
 		return err
 	}
-	if err := os.Mkdir(rw, 0755); err != nil && !os.IsExist(err) {
-		return err
-	}
-	if err := MountAUFS(layers, rw, root); err != nil {
-		return err
+	switch runtime.GetMountMethod() {
+	case MountMethodAUFS:
+		if err := os.Mkdir(rw, 0755); err != nil && !os.IsExist(err) {
+			return err
+		}
+		layers, err := image.layers()
+		if err != nil {
+			return err
+		}
+		if err := MountAUFS(layers, rw, root); err != nil {
+			return err
+		}
+	case MountMethodDeviceMapper:
+		volumes, err := runtime.GetVolumeSet()
+		if err != nil {
+			return err
+		}
+		err = image.ensureVolume(volumes)
+		if err != nil {
+			return err
+		}
+
+		err = volumes.AddVolume(id, image.ID)
+		if err != nil {
+			return err
+		}
+
+		err = volumes.MountVolume(id, root)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

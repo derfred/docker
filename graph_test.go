@@ -143,7 +143,7 @@ func TestMount(t *testing.T) {
 	if err := os.MkdirAll(rw, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := image.Mount(runtime, rootfs, rw); err != nil {
+	if err := image.Mount(runtime, rootfs, rw, "testing"); err != nil {
 		t.Fatal(err)
 	}
 	// FIXME: test for mount contents
