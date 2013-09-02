@@ -268,7 +268,7 @@ func (image *Image) applyLayer(layer, target string) error {
 				srcStat.Mode & syscall.S_IFIFO == syscall.S_IFIFO ||
 				srcStat.Mode & syscall.S_IFSOCK == syscall.S_IFSOCK {
 				// Source is special file
-				err = syscall.Mknod(targetPath, srcStat.Mode, int(srcStat.Dev))
+				err = syscall.Mknod(targetPath, srcStat.Mode, int(srcStat.Rdev))
 				if err != nil {
 					return err
 				}
