@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
-	"github.com/dotcloud/docker"
+	"github.com/dotcloud/docker/devmapper"
 )
 
 func usage() {
@@ -12,7 +12,7 @@ func usage() {
 }
 
 func main() {
-	volumes, err := docker.NewVolumeSet("/var/lib/docker")
+	volumes, err := devmapper.NewVolumeSetDM("/var/lib/docker")
 	if err != nil {
 		fmt.Println("Setup failed:", err)
 		os.Exit(1);

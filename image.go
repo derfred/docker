@@ -310,7 +310,7 @@ func (image *Image) applyLayer(layer, target string) error {
 	return err
 }
 
-func (image *Image) ensureVolume(volumes *VolumeSet) error {
+func (image *Image) ensureVolume(volumes VolumeSet) error {
 	if volumes.HasVolume(image.ID) {
 		return nil
 	}
@@ -346,10 +346,6 @@ func (image *Image) ensureVolume(volumes *VolumeSet) error {
 	}
 
 	parentID := image.Parent
-	if parentID == "" {
-		parentID = BaseVolumeHash
-	}
-
 	log.Printf("Creating demove-mapper volume for image id %s", image.ID)
 
 	err = volumes.AddVolume(image.ID, parentID)
