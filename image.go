@@ -221,8 +221,11 @@ func (image *Image) applyLayer(layer, target string) error {
 		} else {
 			var targetStat = &syscall.Stat_t{}
 			err := syscall.Lstat(targetPath, targetStat)
-			if err != nil && !os.IsNotExist(err) {
-				return err
+			if err != nil {
+				if !os.IsNotExist(err) {
+					return err
+				}
+				targetStat = nil
 			}
 
 			if targetStat != nil && (targetStat.Mode & syscall.S_IFDIR == 0 || srcStat.Mode & syscall.S_IFDIR == 0) {
