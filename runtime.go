@@ -4,7 +4,6 @@ import (
 	"container/list"
 	"fmt"
 	"github.com/dotcloud/docker/utils"
-	"github.com/dotcloud/docker/devmapper"
 	"io"
 	"io/ioutil"
 	"log"
@@ -42,6 +41,7 @@ type Runtime struct {
 	volumes        *Graph
 	srv            *Server
 	Dns            []string
+	volumeSetFactory  VolumeSetFactory
 	volumeSet      VolumeSet
 	mountMethod    MountMethod
 }
@@ -78,9 +78,17 @@ func (runtime *Runtime) GetMountMethod() MountMethod {
 }
 
 
+func (runtime *Runtime) SetVolumeSetFactory(factory VolumeSetFactory) {
+	runtime.volumeSetFactory = factory
+}
+
 func (runtime *Runtime) GetVolumeSet() (VolumeSet, error) {
 	if runtime.volumeSet == nil {
-		volumeSet, err := devmapper.NewVolumeSetDM(runtime.root)
+		if (runtime.volumeSetFactory == nil) {
+			return nil, fmt.Errorf("No volume set available")
+		}
+
+		volumeSet, err := runtime.volumeSetFactory(runtime.root)
 		if volumeSet == nil {
 			return nil, err
 		}

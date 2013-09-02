@@ -5,3 +5,5 @@ type VolumeSet interface {
 	MountVolume(hash, path string) error
 	HasVolume(hash string) bool
 }
+
+type VolumeSetFactory func(string) (VolumeSet, error)
