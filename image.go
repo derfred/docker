@@ -177,6 +177,8 @@ func (image *Image) TarLayer(compression Compression) (Archive, error) {
 }
 
 func (image *Image) applyLayer(layer, target string) error {
+	oldmask := syscall.Umask(0)
+	defer syscall.Umask(oldmask)
 	err := filepath.Walk(layer, func(srcPath string, f os.FileInfo, err error) error {
 		if err != nil {
 			return err
