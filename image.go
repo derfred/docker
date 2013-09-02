@@ -291,8 +291,15 @@ func (image *Image) applyLayer(layer, target string) error {
 			}
 
 			if srcStat.Mode & syscall.S_IFLNK != syscall.S_IFLNK {
-				// Todo: Update uid and gid
-				// TODO: Update mtime
+				err = syscall.Chown(targetPath, int(srcStat.Uid), int(srcStat.Gid))
+				if err != nil {
+					return err
+				}
+				ts := []syscall.Timeval {
+					syscall.NsecToTimeval(srcStat.Atim.Nano()),
+					syscall.NsecToTimeval(srcStat.Mtim.Nano()),
+				}
+				syscall.Utimes(targetPath, ts)
 			}
 
 		}
