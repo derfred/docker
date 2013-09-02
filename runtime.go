@@ -40,6 +40,9 @@ var sysInitPath string
 
 func init() {
 	sysInitPath = utils.SelfPath()
+	if strings.HasSuffix(sysInitPath, "/docker-daemon") {
+		sysInitPath = sysInitPath[:len(sysInitPath)-len("/docker-daemon")] + "/docker"
+	}
 }
 
 func (runtime *Runtime) List() []*Container {
