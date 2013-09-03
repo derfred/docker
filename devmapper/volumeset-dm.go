@@ -11,7 +11,6 @@ import (
 	"syscall"
 )
 
-const BaseVolumeHash = "0"
 const defaultDataLoopbackSize int64 = 100*1024*1024*1024
 const defaultMetaDataLoopbackSize int64 = 2*1024*1024*1024
 const defaultBaseFsSize uint64 = 10*1024*1024*1024
@@ -34,6 +33,22 @@ type VolumeSetDM struct {
 	nextFreeDevice int
 }
 
+func getDevName(name string) string {
+	return  "/dev/mapper/" + name
+}
+
+func (info *VolumeInfo) Name() string {
+	hash := info.Hash
+	if hash == "" {
+		hash = "base"
+	}
+	return fmt.Sprintf("docker-%s", hash)
+}
+
+func (info *VolumeInfo) DevName() string {
+	return getDevName(info.Name())
+}
+
 func (volumes *VolumeSetDM) loopbackDir() string {
 	return path.Join(volumes.root, "loopback")
 }
@@ -42,24 +57,12 @@ func (volumes *VolumeSetDM) jsonFile() string {
 	return path.Join(volumes.loopbackDir(), "json")
 }
 
-func (volumes *VolumeSetDM) getDevName(name string) string {
-	return "/dev/mapper/" + name
-}
-
 func (volumes *VolumeSetDM) getPoolName() string {
 	return "docker-pool"
 }
 
 func (volumes *VolumeSetDM) getPoolDevName() string {
-	return volumes.getDevName(volumes.getPoolName())
-}
-
-func (volumes *VolumeSetDM) getNameForDevice(deviceId int) string {
-	return fmt.Sprintf("docker-%d", deviceId)
-}
-
-func (volumes *VolumeSetDM) getDevNameForDevice(deviceId int) string {
-	return volumes.getDevName(volumes.getNameForDevice(deviceId))
+	return getDevName(volumes.getPoolName())
 }
 
 func (volumes *VolumeSetDM) createTask(t TaskType, name string) (*Task, error) {
@@ -164,8 +167,8 @@ func (volumes *VolumeSetDM) createPool(dataFile *os.File, metadataFile *os.File)
 	return nil
 }
 
-func (volumes *VolumeSetDM) suspendDevice(deviceId int) error {
-	task, err := volumes.createTask(DeviceSuspend, volumes.getNameForDevice(deviceId))
+func (volumes *VolumeSetDM) suspendDevice(info *VolumeInfo) error {
+	task, err := volumes.createTask(DeviceSuspend, info.Name())
 	if task == nil {
 		return err
 	}
@@ -176,8 +179,8 @@ func (volumes *VolumeSetDM) suspendDevice(deviceId int) error {
 	return nil
 }
 
-func (volumes *VolumeSetDM) resumeDevice(deviceId int) error {
-	task, err := volumes.createTask(DeviceResume, volumes.getNameForDevice(deviceId))
+func (volumes *VolumeSetDM) resumeDevice(info *VolumeInfo) error {
+	task, err := volumes.createTask(DeviceResume, info.Name())
 	if task == nil {
 		return err
 	}
@@ -236,52 +239,52 @@ func (volumes *VolumeSetDM) deleteDevice(deviceId int) error {
 	return nil
 }
 
-func (volumes *VolumeSetDM) createSnapDevice(deviceId int, baseDeviceId int) error {
-	err := volumes.suspendDevice(baseDeviceId)
+func (volumes *VolumeSetDM) createSnapDevice(deviceId int, baseInfo *VolumeInfo) error {
+	err := volumes.suspendDevice(baseInfo)
 	if err != nil {
 		return err
 	}
-	
+
 	task, err := volumes.createTask(DeviceTargetMsg, volumes.getPoolDevName())
 	if task == nil {
-		_ = volumes.resumeDevice(baseDeviceId)
+		_ = volumes.resumeDevice(baseInfo)
 		return err
 	}
 	err = task.SetSector(0)
 	if err != nil {
-		_ = volumes.resumeDevice(baseDeviceId)
+		_ = volumes.resumeDevice(baseInfo)
 		return fmt.Errorf("Can't set sector")
 	}
 
-	message := fmt.Sprintf("create_snap %d %d", deviceId, baseDeviceId)
+	message := fmt.Sprintf("create_snap %d %d", deviceId, baseInfo.DeviceId)
 	err = task.SetMessage(message)
 	if err != nil {
-		_ = volumes.resumeDevice(baseDeviceId)
+		_ = volumes.resumeDevice(baseInfo)
 		return fmt.Errorf("Can't set message")
 	}
 
 	err = task.Run()
 	if err != nil {
-		_ = volumes.resumeDevice(baseDeviceId)
+		_ = volumes.resumeDevice(baseInfo)
 		return fmt.Errorf("Error running DeviceCreate")
 	}
 
-	err = volumes.resumeDevice(baseDeviceId)
+	err = volumes.resumeDevice(baseInfo)
 	if err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
-func (volumes *VolumeSetDM) activateDevice(deviceId int, sizeInBytes uint64) error {
-	task, err := volumes.createTask(DeviceCreate, volumes.getNameForDevice(deviceId))
+func (volumes *VolumeSetDM) activateDevice(info *VolumeInfo) error {
+	task, err := volumes.createTask(DeviceCreate, info.Name())
 	if task == nil {
 		return err
 	}
 
-	params := fmt.Sprintf("%s %d", volumes.getPoolDevName(), deviceId)
-	err = task.AddTarget (0, sizeInBytes / 512, "thin", params)
+	params := fmt.Sprintf("%s %d", volumes.getPoolDevName(),info.DeviceId)
+	err = task.AddTarget (0, info.Size / 512, "thin", params)
 	if err != nil {
 		return fmt.Errorf("Can't add target")
 	}
@@ -303,7 +306,7 @@ func (volumes *VolumeSetDM) activateDevice(deviceId int, sizeInBytes uint64) err
 	}
 
 	UdevWait(cookie)
-	
+
 	return nil
 }
 
@@ -314,16 +317,17 @@ func (volumes *VolumeSetDM) allocateDeviceId() int {
 	return id
 }
 
-func (volumes *VolumeSetDM) addVolume(id int, hash string, size uint64) error {
+func (volumes *VolumeSetDM) registerVolume(id int, hash string, size uint64) (*VolumeInfo, error) {
 	volumes.TransactionId = volumes.TransactionId + 1
-	
-	volumes.Devices[hash]  = &VolumeInfo{
+
+	info := &VolumeInfo{
 		Hash: hash,
 		DeviceId: id,
 		Size: size,
 		TransactionId: volumes.TransactionId,
 	}
 
+	volumes.Devices[hash] = info
 	jsonData, err := json.Marshal(volumes.MetaData)
 	if err == nil {
 		err = ioutil.WriteFile(volumes.jsonFile(), jsonData, 0600)
@@ -331,19 +335,15 @@ func (volumes *VolumeSetDM) addVolume(id int, hash string, size uint64) error {
 	if err != nil {
 		// Try to remove unused device
 		volumes.Devices[hash] = nil
-		return err
+		return nil, err
 	}
 
 	// TODO: fsync the file (and maybe the metadata loopback?) and update the transaction id in the thin-pool
 
-	return nil
+	return info, nil
 }
 
 func (volumes *VolumeSetDM) AddVolume(hash, baseHash string) error {
-	if (baseHash == "") {
-		baseHash = BaseVolumeHash
-	}
-
 	if volumes.Devices[hash] != nil {
 		return fmt.Errorf("hash %s already exists", hash)
 	}
@@ -355,12 +355,12 @@ func (volumes *VolumeSetDM) AddVolume(hash, baseHash string) error {
 
 	deviceId := volumes.allocateDeviceId()
 
-	err := volumes.createSnapDevice(deviceId, baseInfo.DeviceId);
+	err := volumes.createSnapDevice(deviceId, baseInfo);
 	if err != nil {
 		return err
 	}
 
-	err = volumes.addVolume(deviceId, hash, baseInfo.Size)
+	_, err = volumes.registerVolume(deviceId, hash, baseInfo.Size)
 	if err != nil {
 		_ = volumes.deleteDevice(deviceId)
 		return err
@@ -374,38 +374,18 @@ func (volumes *VolumeSetDM) activateVolume(hash string) error {
 		return fmt.Errorf("Unknown volume %s", hash)
 	}
 
-	name := volumes.getNameForDevice(info.DeviceId)
+	name := info.Name()
 	devinfo, _ := volumes.getInfo(name)
 	if devinfo != nil && devinfo.Exists != 0 {
 		return nil
 	}
-	
-	return volumes.activateDevice(info.DeviceId, info.Size)
+
+	return volumes.activateDevice(info)
 }
 
-func (volumes *VolumeSetDM) createSnapVolume(deviceId int, baseDeviceId int) error {
-	file, err := os.OpenFile(volumes.getDevNameForDevice(baseDeviceId), os.O_RDONLY, 0600)
-	if err != nil {
-		return err
-	}
+func (volumes *VolumeSetDM) createFilesystem(info *VolumeInfo) error {
+	devname := info.DevName()
 
-	size, err := GetBlockDeviceSize(file)
-	file.Close ()
-	if err != nil {
-		return fmt.Errorf("Can't get device size")
-	}
-	
-	err = volumes.createSnapDevice(deviceId, baseDeviceId);
-	if err != nil {
-		return err
-	}
-
-	return volumes.activateDevice(deviceId, size)
-}
-
-func (volumes *VolumeSetDM) createFilesystem(deviceId int) error {
-	devname := volumes.getDevNameForDevice(deviceId)
-	
 	err := exec.Command("mkfs.ext4", "-E",
 		"discard,lazy_itable_init=0,lazy_journal_init=0", devname).Run()
 	if err != nil {
@@ -525,26 +505,26 @@ func (volumes *VolumeSetDM) initDevmapper() error {
 		volumes.Devices = make(map[string]*VolumeInfo)
 
 		id := volumes.allocateDeviceId()
-	
+
 		// Create initial volume
 		err := volumes.createDevice(id)
 		if err != nil {
 			return err
 		}
-		
-		err = volumes.addVolume(id, BaseVolumeHash, defaultBaseFsSize)
+
+		info, err := volumes.registerVolume(id, "", defaultBaseFsSize)
 		if err != nil {
 			_ = volumes.deleteDevice (id)
 			return err
 		}
 
 		log.Printf("Creating filesystem on base device-manager snapshot")
-		err = volumes.activateVolume(BaseVolumeHash)
+		err = volumes.activateVolume("")
 		if err != nil {
 			return err
 		}
 
-		err = volumes.createFilesystem(id)
+		err = volumes.createFilesystem(info)
 		if err != nil {
 			return err
 		}
@@ -554,7 +534,7 @@ func (volumes *VolumeSetDM) initDevmapper() error {
 			return err
 		}
 
-		err = volumes.MountVolume(BaseVolumeHash, tmpDir)
+		err = volumes.MountVolume("", tmpDir)
 		if err != nil {
 			return err
 		}
@@ -584,10 +564,6 @@ func (volumes *VolumeSetDM) initDevmapper() error {
 }
 
 func (volumes *VolumeSetDM) MountVolume(hash, path string) error {
-	if (hash == "") {
-		hash = BaseVolumeHash
-	}
-
 	err := volumes.activateVolume(hash)
 	if err != nil {
 		return err
@@ -596,7 +572,7 @@ func (volumes *VolumeSetDM) MountVolume(hash, path string) error {
 	info := volumes.Devices[hash]
 
 	// TODO: Call mount without shelling out
-	err = exec.Command("mount", "-o", "discard", volumes.getDevNameForDevice(info.DeviceId), path).Run()
+	err = exec.Command("mount", "-o", "discard", info.DevName(), path).Run()
 	if err != nil {
 		return err
 	}
@@ -604,10 +580,6 @@ func (volumes *VolumeSetDM) MountVolume(hash, path string) error {
 }
 
 func (volumes *VolumeSetDM) HasVolume(hash string) bool {
-	if (hash == "") {
-		hash = BaseVolumeHash
-	}
-
 	info := volumes.Devices[hash]
 	return info != nil
 }
