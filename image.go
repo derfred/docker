@@ -353,25 +353,28 @@ func (image *Image) ensureVolume(volumes VolumeSet) error {
 		}
 	}
 
-	log.Printf("Creating demove-mapper volume for image id %s", image.ID)
+	log.Printf("Creating device-mapper volume for image id %s", image.ID)
 
 	err = volumes.AddVolume(image.ID, image.Parent)
 	if err != nil {
 		return err
 	}
 
+	utils.Debugf("Mounting volume %s at %s for image setup", image.ID, mountDir)
 	err = volumes.MountVolume(image.ID, mountDir)
 	if err != nil {
 		_ = volumes.RemoveVolume(image.ID)
 		return err
 	}
 
+	utils.Debugf("Applying layer %s at %s", image.ID, mountDir)
 	err = image.applyLayer(layerPath(root), mountDir)
 	if err != nil {
 		_ = volumes.RemoveVolume(image.ID)
 		return err
 	}
 
+	utils.Debugf("Unmounting %s", mountDir)
 	err = syscall.Unmount(mountDir, 0)
 	if err != nil {
 		_ = volumes.RemoveVolume(image.ID)
@@ -416,11 +419,13 @@ func (image *Image) Mount(runtime *Runtime, root, rw string, id string) error {
 			return err
 		}
 
+		utils.Debugf("Creating volume %s for container based on image %s", id, image.ID)
 		err = volumes.AddVolume(id, image.ID)
 		if err != nil {
 			return err
 		}
 
+		utils.Debugf("Mounting container %s at %s for container", id, root)
 		err = volumes.MountVolume(id, root)
 		if err != nil {
 			return err
