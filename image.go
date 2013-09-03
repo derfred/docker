@@ -311,11 +311,11 @@ func (image *Image) applyLayer(layer, target string) error {
 }
 
 func (image *Image) ensureVolume(volumes VolumeSet) error {
-	if volumes.HasVolume(image.ID) {
+	if volumes.HasInitializedVolume(image.ID) {
 		return nil
 	}
 
-	if image.Parent != "" && !volumes.HasVolume(image.Parent) {
+	if image.Parent != "" && !volumes.HasInitializedVolume(image.Parent) {
 		parentImg, err := image.GetParent()
 		if err != nil {
 			return fmt.Errorf("Error while getting parent image: %v", err)
@@ -337,35 +337,48 @@ func (image *Image) ensureVolume(volumes VolumeSet) error {
 	}
 
 	mounted, err := Mounted(mountDir)
-	if err != nil {
-		return err
+	if err == nil && mounted {
+		log.Printf("Image %s is unexpectedly mounted, unmounting...", image.ID)
+		err = syscall.Unmount(mountDir, 0)
+		if err != nil {
+			return err
+		}
 	}
 
-	if mounted {
-		return fmt.Errorf("Image %s inexpectedly already mounted", image.ID)
+	if volumes.HasVolume(image.ID) {
+		log.Printf("Found non-initialized demove-mapper volume for image %s, removing", image.ID)
+		err = volumes.RemoveVolume(image.ID)
+		if err != nil {
+			return err
+		}
 	}
 
-	parentID := image.Parent
 	log.Printf("Creating demove-mapper volume for image id %s", image.ID)
 
-	err = volumes.AddVolume(image.ID, parentID)
+	err = volumes.AddVolume(image.ID, image.Parent)
 	if err != nil {
 		return err
 	}
-
-	// TODO remove volume if initialization failed before done
 
 	err = volumes.MountVolume(image.ID, mountDir)
 	if err != nil {
+		_ = volumes.RemoveVolume(image.ID)
 		return err
 	}
 
 	err = image.applyLayer(layerPath(root), mountDir)
 	if err != nil {
+		_ = volumes.RemoveVolume(image.ID)
 		return err
 	}
 
-	Unmount(mountDir)
+	err = syscall.Unmount(mountDir, 0)
+	if err != nil {
+		_ = volumes.RemoveVolume(image.ID)
+		return err
+	}
+
+	volumes.SetInitialized(image.ID)
 
 	return nil
 }
