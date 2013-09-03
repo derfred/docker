@@ -571,8 +571,7 @@ func (volumes *VolumeSetDM) MountVolume(hash, path string) error {
 
 	info := volumes.Devices[hash]
 
-	// TODO: Call mount without shelling out
-	err = exec.Command("mount", "-o", "discard", info.DevName(), path).Run()
+	err = syscall.Mount(info.DevName(), path, "ext4", syscall.MS_MGC_VAL, "discard")
 	if err != nil {
 		return err
 	}
