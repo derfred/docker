@@ -3,10 +3,12 @@ package devmapper
 import (
 	"fmt"
 	"os"
+	"io"
 	"io/ioutil"
 	"os/exec"
 	"encoding/json"
 	"path"
+	"path/filepath"
 	"log"
 	"syscall"
 )
@@ -332,13 +334,37 @@ func (volumes *VolumeSetDM) allocateDeviceId() int {
 
 func (volumes *VolumeSetDM) saveMetadata(updateTransactionId bool) (error) {
 	jsonData, err := json.Marshal(volumes.MetaData)
-	if err == nil {
-		err = ioutil.WriteFile(volumes.jsonFile(), jsonData, 0600)
+	if err != nil {
+		return err
+	}
+	tmpFile, err := ioutil.TempFile(filepath.Dir(volumes.jsonFile()), ".json")
+	if err != nil {
+		return err
 	}
 
-	// TODO: fsync the file (and maybe the metadata loopback?) and update the transaction id in the thin-pool
+	n, err := tmpFile.Write(jsonData)
+	if err != nil {
+		return err
+	}
+	if n < len(jsonData) {
+		err = io.ErrShortWrite
+	}
+	err = tmpFile.Sync()
+	if err != nil {
+		return err
+	}
+	err = tmpFile.Close()
+	if err != nil {
+		return err
+	}
+	err = os.Rename(tmpFile.Name(), volumes.jsonFile())
+	if err != nil {
+		return err
+	}
 
-	return err
+	// TODO: update the transaction id in the thin-pool
+
+	return nil
 }
 
 
