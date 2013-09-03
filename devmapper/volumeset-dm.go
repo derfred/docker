@@ -20,6 +20,7 @@ type VolumeInfo struct {
 	DeviceId int `json:"device-id"`
 	Size uint64 `json:size`
 	TransactionId uint64 `json:transaction-id`
+	Initialized bool `json:initialized`
 }
 
 type MetaData struct {
@@ -215,30 +216,6 @@ func (volumes *VolumeSetDM) createDevice(deviceId int) error {
 	return nil
 }
 
-func (volumes *VolumeSetDM) deleteDevice(deviceId int) error {
-	task, err := volumes.createTask(DeviceTargetMsg, volumes.getPoolDevName())
-	if task == nil {
-		return err
-	}
-
-	err = task.SetSector(0)
-	if err != nil {
-		return fmt.Errorf("Can't set sector")
-	}
-
-	message := fmt.Sprintf("delete %d", deviceId)
-	err = task.SetMessage(message)
-	if err != nil {
-		return fmt.Errorf("Can't set message")
-	}
-
-	err = task.Run()
-	if err != nil {
-		return fmt.Errorf("Error running deleteDevice")
-	}
-	return nil
-}
-
 func (volumes *VolumeSetDM) createSnapDevice(deviceId int, baseInfo *VolumeInfo) error {
 	err := volumes.suspendDevice(baseInfo)
 	if err != nil {
@@ -274,6 +251,42 @@ func (volumes *VolumeSetDM) createSnapDevice(deviceId int, baseInfo *VolumeInfo)
 		return err
 	}
 
+	return nil
+}
+
+func (volumes *VolumeSetDM) deleteDevice(deviceId int) error {
+	task, err := volumes.createTask(DeviceTargetMsg, volumes.getPoolDevName())
+	if task == nil {
+		return err
+	}
+
+	err = task.SetSector(0)
+	if err != nil {
+		return fmt.Errorf("Can't set sector")
+	}
+
+	message := fmt.Sprintf("delete %d", deviceId)
+	err = task.SetMessage(message)
+	if err != nil {
+		return fmt.Errorf("Can't set message")
+	}
+
+	err = task.Run()
+	if err != nil {
+		return fmt.Errorf("Error running deleteDevice")
+	}
+	return nil
+}
+
+func (volumes *VolumeSetDM) removeDevice(info *VolumeInfo) error {
+	task, err := volumes.createTask(DeviceRemove, info.Name())
+	if task == nil {
+		return err
+	}
+	err = task.Run()
+	if err != nil {
+		return fmt.Errorf("Error running removeDevice")
+	}
 	return nil
 }
 
@@ -317,6 +330,18 @@ func (volumes *VolumeSetDM) allocateDeviceId() int {
 	return id
 }
 
+func (volumes *VolumeSetDM) saveMetadata(updateTransactionId bool) (error) {
+	jsonData, err := json.Marshal(volumes.MetaData)
+	if err == nil {
+		err = ioutil.WriteFile(volumes.jsonFile(), jsonData, 0600)
+	}
+
+	// TODO: fsync the file (and maybe the metadata loopback?) and update the transaction id in the thin-pool
+
+	return err
+}
+
+
 func (volumes *VolumeSetDM) registerVolume(id int, hash string, size uint64) (*VolumeInfo, error) {
 	volumes.TransactionId = volumes.TransactionId + 1
 
@@ -325,47 +350,18 @@ func (volumes *VolumeSetDM) registerVolume(id int, hash string, size uint64) (*V
 		DeviceId: id,
 		Size: size,
 		TransactionId: volumes.TransactionId,
+		Initialized: false,
 	}
 
 	volumes.Devices[hash] = info
-	jsonData, err := json.Marshal(volumes.MetaData)
-	if err == nil {
-		err = ioutil.WriteFile(volumes.jsonFile(), jsonData, 0600)
-	}
+	err := volumes.saveMetadata(true)
 	if err != nil {
 		// Try to remove unused device
 		volumes.Devices[hash] = nil
 		return nil, err
 	}
 
-	// TODO: fsync the file (and maybe the metadata loopback?) and update the transaction id in the thin-pool
-
 	return info, nil
-}
-
-func (volumes *VolumeSetDM) AddVolume(hash, baseHash string) error {
-	if volumes.Devices[hash] != nil {
-		return fmt.Errorf("hash %s already exists", hash)
-	}
-
-	baseInfo := volumes.Devices[baseHash]
-	if baseInfo == nil {
-		return fmt.Errorf("Unknown base hash %s", baseHash)
-	}
-
-	deviceId := volumes.allocateDeviceId()
-
-	err := volumes.createSnapDevice(deviceId, baseInfo);
-	if err != nil {
-		return err
-	}
-
-	_, err = volumes.registerVolume(deviceId, hash, baseInfo.Size)
-	if err != nil {
-		_ = volumes.deleteDevice(deviceId)
-		return err
-	}
-	return nil
 }
 
 func (volumes *VolumeSetDM) activateVolume(hash string) error {
@@ -553,11 +549,84 @@ func (volumes *VolumeSetDM) initDevmapper() error {
 		_ = os.Remove (tmpDir)
 
 		// TODO: Fsync loopback devices
+
+		info.Initialized = true
+
+		err = volumes.saveMetadata(false)
+		if err != nil {
+			info.Initialized = false
+			return err
+		}
+
 	} else {
 		err = volumes.loadMetaData()
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (volumes *VolumeSetDM) AddVolume(hash, baseHash string) error {
+	if volumes.Devices[hash] != nil {
+		return fmt.Errorf("hash %s already exists", hash)
+	}
+
+	baseInfo := volumes.Devices[baseHash]
+	if baseInfo == nil {
+		return fmt.Errorf("Unknown base hash %s", baseHash)
+	}
+
+	deviceId := volumes.allocateDeviceId()
+
+	err := volumes.createSnapDevice(deviceId, baseInfo);
+	if err != nil {
+		return err
+	}
+
+	_, err = volumes.registerVolume(deviceId, hash, baseInfo.Size)
+	if err != nil {
+		_ = volumes.deleteDevice(deviceId)
+		return err
+	}
+	return nil
+}
+
+func (volumes *VolumeSetDM) RemoveVolume(hash string) error {
+	info := volumes.Devices[hash]
+	if info == nil {
+		return fmt.Errorf("hash %s doesn't exists", hash)
+	}
+
+	devinfo, _ := volumes.getInfo(info.Name())
+	if devinfo != nil && devinfo.Exists != 0 {
+		err := volumes.removeDevice(info)
+		if err != nil {
+			return err
+		}
+	}
+
+	if info.Initialized {
+		info.Initialized = false
+		err := volumes.saveMetadata(false)
+		if err != nil {
+			return err
+		}
+	}
+
+	err := volumes.deleteDevice(info.DeviceId)
+	if err != nil {
+		return err
+	}
+
+	volumes.TransactionId = volumes.TransactionId + 1
+	delete(volumes.Devices, info.Hash)
+
+	err = volumes.saveMetadata(true)
+	if err != nil {
+		volumes.Devices[info.Hash] = info
+		return err
 	}
 
 	return nil
@@ -581,6 +650,27 @@ func (volumes *VolumeSetDM) MountVolume(hash, path string) error {
 func (volumes *VolumeSetDM) HasVolume(hash string) bool {
 	info := volumes.Devices[hash]
 	return info != nil
+}
+
+func (volumes *VolumeSetDM) HasInitializedVolume(hash string) bool {
+	info := volumes.Devices[hash]
+	return info != nil && info.Initialized
+}
+
+func (volumes *VolumeSetDM) SetInitialized(hash string) error {
+	info := volumes.Devices[hash]
+	if info == nil {
+		return fmt.Errorf("Unknown volume %s", hash)
+	}
+
+	info.Initialized = true
+	err := volumes.saveMetadata(false)
+	if err != nil {
+		info.Initialized = false
+		return err
+	}
+
+	return nil
 }
 
 func NewVolumeSetDM(root string) (*VolumeSetDM, error) {
