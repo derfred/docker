@@ -204,8 +204,11 @@ func (image *Image) applyLayer(layer, target string) error {
 
 
 		// Skip AUFS metadata
-		if matched, err := filepath.Match("/.wh..wh.*", relPath); err != nil || matched {
-			return err
+		if matched, err := filepath.Match(".wh..wh.*", relPath); err != nil || matched {
+			if err != nil || !f.IsDir() {
+				return err
+			}
+			return filepath.SkipDir
 		}
 
 		// Find out what kind of modification happened
