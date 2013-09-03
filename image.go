@@ -230,7 +230,7 @@ func (image *Image) applyLayer(layer, target string) error {
 				targetStat = nil
 			}
 
-			if targetStat != nil && (targetStat.Mode & syscall.S_IFDIR != syscall.S_IFDIR || srcStat.Mode & syscall.S_IFDIR != syscall.S_IFDIR) {
+			if targetStat != nil && !(targetStat.Mode & syscall.S_IFDIR == syscall.S_IFDIR && srcStat.Mode & syscall.S_IFDIR == syscall.S_IFDIR) {
 				// Unless both src and dest are directories we remove the target and recreate it
 				// This is a bit wasteful in the case of only a mode change, but that is unlikely
 				// to matter much
