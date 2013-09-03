@@ -26,13 +26,14 @@ type VolumeInfo struct {
 }
 
 type MetaData struct {
-	TransactionId uint64
 	Devices map[string]*VolumeInfo `json:devices`
 }
 
 type VolumeSetDM struct {
 	root string
 	MetaData
+	TransactionId uint64
+	NewTransactionId uint64
 	nextFreeDevice int
 }
 
@@ -95,6 +96,55 @@ func (volumes *VolumeSetDM) getInfo(name string) (*Info, error) {
 	}
 	return info, nil
 }
+
+func (volumes *VolumeSetDM) getStatus(name string) (uint64, uint64, string, string, error) {
+	task, err := volumes.createTask(DeviceStatus, name)
+	if task == nil {
+		return 0, 0, "", "", err
+	}
+	err = task.Run()
+	if err != nil {
+		return 0, 0, "", "", err
+	}
+
+	devinfo, err := task.GetInfo()
+	if err != nil {
+		return 0, 0, "", "", err
+	}
+	if devinfo.Exists == 0 {
+		return 0, 0, "", "", fmt.Errorf("Non existing device %s", name)
+	}
+
+	var next uintptr = 0
+	next, start, length, target_type, params := task.GetNextTarget(next)
+
+	return start, length, target_type, params, nil
+}
+
+func (volumes *VolumeSetDM) setTransactionId(oldId uint64, newId uint64) error {
+	task, err := volumes.createTask(DeviceTargetMsg, volumes.getPoolDevName())
+	if task == nil {
+		return err
+	}
+
+	err = task.SetSector(0)
+	if err != nil {
+		return fmt.Errorf("Can't set sector")
+	}
+
+	message := fmt.Sprintf("set_transaction_id %d %d", oldId, newId)
+	err = task.SetMessage(message)
+	if err != nil {
+		return fmt.Errorf("Can't set message")
+	}
+
+	err = task.Run()
+	if err != nil {
+		return fmt.Errorf("Error running setTransactionId")
+	}
+	return nil
+}
+
 
 func (volumes *VolumeSetDM) hasImage(name string) bool {
 	dirname := volumes.loopbackDir()
@@ -332,7 +382,13 @@ func (volumes *VolumeSetDM) allocateDeviceId() int {
 	return id
 }
 
-func (volumes *VolumeSetDM) saveMetadata(updateTransactionId bool) (error) {
+func (volumes *VolumeSetDM) allocateTransactionId() uint64 {
+	volumes.NewTransactionId = volumes.NewTransactionId + 1
+	return volumes.NewTransactionId
+}
+
+
+func (volumes *VolumeSetDM) saveMetadata() (error) {
 	jsonData, err := json.Marshal(volumes.MetaData)
 	if err != nil {
 		return err
@@ -362,25 +418,30 @@ func (volumes *VolumeSetDM) saveMetadata(updateTransactionId bool) (error) {
 		return err
 	}
 
-	// TODO: update the transaction id in the thin-pool
+	if volumes.NewTransactionId != volumes.TransactionId {
+		err = volumes.setTransactionId(volumes.TransactionId, volumes.NewTransactionId)
+		if err != nil {
+			return err
+		}
+		volumes.TransactionId = volumes.NewTransactionId
+	}
 
 	return nil
 }
 
-
 func (volumes *VolumeSetDM) registerVolume(id int, hash string, size uint64) (*VolumeInfo, error) {
-	volumes.TransactionId = volumes.TransactionId + 1
+	transaction := volumes.allocateTransactionId()
 
 	info := &VolumeInfo{
 		Hash: hash,
 		DeviceId: id,
 		Size: size,
-		TransactionId: volumes.TransactionId,
+		TransactionId: transaction,
 		Initialized: false,
 	}
 
 	volumes.Devices[hash] = info
-	err := volumes.saveMetadata(true)
+	err := volumes.saveMetadata()
 	if err != nil {
 		// Try to remove unused device
 		volumes.Devices[hash] = nil
@@ -417,6 +478,19 @@ func (volumes *VolumeSetDM) createFilesystem(info *VolumeInfo) error {
 }
 
 func (volumes *VolumeSetDM) loadMetaData() error {
+	_, _, _, params, err := volumes.getStatus(volumes.getPoolName())
+	if err != nil {
+		return err
+	}
+	var currentTransaction uint64
+	_, err = fmt.Sscanf(params, "%d", &currentTransaction)
+	if err != nil {
+		return err
+	}
+
+	volumes.TransactionId = currentTransaction
+	volumes.NewTransactionId = volumes.TransactionId
+
 	jsonData, err := ioutil.ReadFile(volumes.jsonFile())
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -432,9 +506,15 @@ func (volumes *VolumeSetDM) loadMetaData() error {
 	}
 	volumes.MetaData = *metadata
 
-	for _, d := range volumes.Devices {
+	for hash, d := range volumes.Devices {
 		if d.DeviceId >= volumes.nextFreeDevice {
 			volumes.nextFreeDevice = d.DeviceId + 1
+		}
+
+		// If the transaction id is larger than the actual one we lost the volume due to some crash
+		if d.TransactionId > currentTransaction {
+			log.Printf("Removing lost volume %s with id %d", hash, d.TransactionId)
+			delete(volumes.Devices, hash)
 		}
 	}
 
@@ -544,7 +624,7 @@ func (volumes *VolumeSetDM) setupBaseImage() error {
 
 	info.Initialized = true
 
-	err = volumes.saveMetadata(false)
+	err = volumes.saveMetadata()
 	if err != nil {
 		info.Initialized = false
 		return err
@@ -661,7 +741,7 @@ func (volumes *VolumeSetDM) RemoveVolume(hash string) error {
 
 	if info.Initialized {
 		info.Initialized = false
-		err := volumes.saveMetadata(false)
+		err := volumes.saveMetadata()
 		if err != nil {
 			return err
 		}
@@ -672,10 +752,10 @@ func (volumes *VolumeSetDM) RemoveVolume(hash string) error {
 		return err
 	}
 
-	volumes.TransactionId = volumes.TransactionId + 1
+	_ = volumes.allocateTransactionId()
 	delete(volumes.Devices, info.Hash)
 
-	err = volumes.saveMetadata(true)
+	err = volumes.saveMetadata()
 	if err != nil {
 		volumes.Devices[info.Hash] = info
 		return err
@@ -716,7 +796,7 @@ func (volumes *VolumeSetDM) SetInitialized(hash string) error {
 	}
 
 	info.Initialized = true
-	err := volumes.saveMetadata(false)
+	err := volumes.saveMetadata()
 	if err != nil {
 		info.Initialized = false
 		return err
