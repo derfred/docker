@@ -392,13 +392,17 @@ func (volumes *VolumeSetDM) createFilesystem(info *VolumeInfo) error {
 
 func (volumes *VolumeSetDM) loadMetaData() error {
 	jsonData, err := ioutil.ReadFile(volumes.jsonFile())
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	metadata := &MetaData {}
-	if err := json.Unmarshal(jsonData, metadata); err != nil {
-		return err
+	metadata := &MetaData {
+		Devices: make(map[string]*VolumeInfo),
+	}
+	if jsonData != nil {
+		if err := json.Unmarshal(jsonData, metadata); err != nil {
+			return err
+		}
 	}
 	volumes.MetaData = *metadata
 
@@ -448,6 +452,80 @@ func (volumes *VolumeSetDM) createBaseLayer(dir string) error {
 	return nil
 }
 
+func (volumes *VolumeSetDM) setupBaseImage() error {
+	oldInfo := volumes.Devices[""]
+	if oldInfo != nil && oldInfo.Initialized {
+		return nil
+	}
+
+	if oldInfo != nil && !oldInfo.Initialized {
+		log.Printf("Removing uninitialized base image")
+		if err := volumes.RemoveVolume(""); err != nil {
+			return err
+		}
+	}
+
+	log.Printf("Initializing base device-manager snapshot")
+
+	id := volumes.allocateDeviceId()
+
+	// Create initial volume
+	err := volumes.createDevice(id)
+	if err != nil {
+		return err
+	}
+
+	info, err := volumes.registerVolume(id, "", defaultBaseFsSize)
+	if err != nil {
+		_ = volumes.deleteDevice (id)
+		return err
+	}
+
+	log.Printf("Creating filesystem on base device-manager snapshot")
+
+	err = volumes.activateVolume("")
+	if err != nil {
+		return err
+	}
+
+	err = volumes.createFilesystem(info)
+	if err != nil {
+		return err
+	}
+
+	tmpDir := path.Join(volumes.loopbackDir(), "basefs")
+	if err = os.MkdirAll(tmpDir, 0700); err != nil && !os.IsExist(err) {
+		return err
+	}
+
+	err = volumes.MountVolume("", tmpDir)
+	if err != nil {
+		return err
+	}
+
+	err = volumes.createBaseLayer(tmpDir)
+	if err != nil {
+		_ = syscall.Unmount(tmpDir, 0)
+		return err
+	}
+
+	err = syscall.Unmount(tmpDir, 0)
+	if err != nil {
+		return err
+	}
+
+	_ = os.Remove (tmpDir)
+
+	info.Initialized = true
+
+	err = volumes.saveMetadata(false)
+	if err != nil {
+		info.Initialized = false
+		return err
+	}
+
+	return nil
+}
 
 func (volumes *VolumeSetDM) initDevmapper() error {
 	info, err := volumes.getInfo(volumes.getPoolName())
@@ -457,15 +535,22 @@ func (volumes *VolumeSetDM) initDevmapper() error {
 
 	if info.Exists != 0 {
 		/* Pool exists, assume everything is up */
-		return volumes.loadMetaData()
+		err = volumes.loadMetaData()
+		if err != nil {
+			return err
+		}
+		err = volumes.setupBaseImage()
+		if err != nil {
+			return err
+		}
+		return nil
 	}
 
-	doInit := false
+	createdLoopback := false
 	if !volumes.hasImage("data") || !volumes.hasImage("metadata") {
 		/* If we create the loopback mounts we also need to initialize the base fs */
-		doInit = true
+		createdLoopback = true
 	}
-	fmt.Println("doInit:", doInit)
 
 	data, err := volumes.ensureImage("data", defaultDataLoopbackSize)
 	if err != nil {
@@ -494,75 +579,16 @@ func (volumes *VolumeSetDM) initDevmapper() error {
 		return err
 	}
 
-	if (doInit) {
-		// TODO: Tear down pool and remove images on failure
-		log.Printf("Initializing base device-manager snapshot")
-
-		volumes.Devices = make(map[string]*VolumeInfo)
-
-		id := volumes.allocateDeviceId()
-
-		// Create initial volume
-		err := volumes.createDevice(id)
-		if err != nil {
-			return err
-		}
-
-		info, err := volumes.registerVolume(id, "", defaultBaseFsSize)
-		if err != nil {
-			_ = volumes.deleteDevice (id)
-			return err
-		}
-
-		log.Printf("Creating filesystem on base device-manager snapshot")
-		err = volumes.activateVolume("")
-		if err != nil {
-			return err
-		}
-
-		err = volumes.createFilesystem(info)
-		if err != nil {
-			return err
-		}
-
-		tmpDir := path.Join(volumes.loopbackDir(), "basefs")
-		if err = os.MkdirAll(tmpDir, 0700); err != nil && !os.IsExist(err) {
-			return err
-		}
-
-		err = volumes.MountVolume("", tmpDir)
-		if err != nil {
-			return err
-		}
-
-		err = volumes.createBaseLayer(tmpDir)
-		if err != nil {
-			_ = syscall.Unmount(tmpDir, 0)
-			return err
-		}
-
-		err = syscall.Unmount(tmpDir, 0)
-		if err != nil {
-			return err
-		}
-
-		_ = os.Remove (tmpDir)
-
-		// TODO: Fsync loopback devices
-
-		info.Initialized = true
-
-		err = volumes.saveMetadata(false)
-		if err != nil {
-			info.Initialized = false
-			return err
-		}
-
-	} else {
+	if (!createdLoopback) {
 		err = volumes.loadMetaData()
 		if err != nil {
 			return err
 		}
+	}
+
+	err = volumes.setupBaseImage()
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -678,6 +704,8 @@ func NewVolumeSetDM(root string) (*VolumeSetDM, error) {
 	volumes := &VolumeSetDM{
 		root:    root,
 	}
+	volumes.Devices = make(map[string]*VolumeInfo)
+
 	err := volumes.initDevmapper()
 	if err != nil {
 		return nil, err
