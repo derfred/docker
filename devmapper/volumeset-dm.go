@@ -435,6 +435,44 @@ func (volumes *VolumeSetDM) loadMetaData() error {
 	return nil
 }
 
+func (volumes *VolumeSetDM) createBaseLayer(dir string) error {
+	for pth, typ := range map[string]string{
+		"/dev/pts":         "dir",
+		"/dev/shm":         "dir",
+		"/proc":            "dir",
+		"/sys":             "dir",
+		"/.dockerinit":     "file",
+		"/etc/resolv.conf": "file",
+		// "var/run": "dir",
+		// "var/lock": "dir",
+	} {
+		if _, err := os.Stat(path.Join(dir, pth)); err != nil {
+			if os.IsNotExist(err) {
+				switch typ {
+				case "dir":
+					if err := os.MkdirAll(path.Join(dir, pth), 0755); err != nil {
+						return err
+					}
+				case "file":
+					if err := os.MkdirAll(path.Join(dir, path.Dir(pth)), 0755); err != nil {
+						return err
+					}
+
+					if f, err := os.OpenFile(path.Join(dir, pth), os.O_CREATE, 0755); err != nil {
+						return err
+					} else {
+						f.Close()
+					}
+				}
+			} else {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+
 func (volumes *VolumeSetDM) initDevmapper() error {
 	info, err := volumes.getInfo(volumes.getPoolName())
 	if info == nil {
@@ -521,11 +559,10 @@ func (volumes *VolumeSetDM) initDevmapper() error {
 			return err
 		}
 
-		if f, err := os.OpenFile(path.Join(tmpDir, ".dockerinit"), os.O_CREATE, 0755); err != nil {
+		err = volumes.createBaseLayer(tmpDir)
+		if err != nil {
 			_ = syscall.Unmount(tmpDir, 0)
 			return err
-		} else {
-			f.Close()
 		}
 
 		err = syscall.Unmount(tmpDir, 0)
@@ -534,6 +571,8 @@ func (volumes *VolumeSetDM) initDevmapper() error {
 		}
 
 		_ = os.Remove (tmpDir)
+
+		// TODO: Fsync loopback devices
 	} else {
 		err = volumes.loadMetaData()
 		if err != nil {
