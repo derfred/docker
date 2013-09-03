@@ -302,6 +302,21 @@ func (t *Task) GetInfo() (*Info, error) {
 	}
 }
 
+func (t *Task) GetNextTarget(next uintptr) (uintptr, uint64, uint64, string, string) {
+	nextp := unsafe.Pointer(next)
+	var c_start C.uint64_t
+	var c_length C.uint64_t
+	var c_target_type *C.char
+	var c_params *C.char
+
+	nextp = C.dm_get_next_target(t.unmanaged, nextp, &c_start, &c_length, &c_target_type, &c_params)
+
+	target_type := C.GoString(c_target_type)
+	params := C.GoString(c_params)
+
+	return uintptr(nextp), uint64(c_start), uint64(c_length), target_type, params
+}
+
 func AttachLoopDevice(filename string) (*os.File, error) {
 	c_filename := C.CString(filename)
 	defer C.free(unsafe.Pointer(c_filename))
