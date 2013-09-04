@@ -348,3 +348,8 @@ func UdevWait(cookie uint32) error {
 	}
 	return nil
 }
+
+
+func LogInitVerbose(level int)  {
+	C.dm_log_init_verbose(C.int(level))
+}
