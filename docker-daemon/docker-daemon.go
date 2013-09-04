@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/dotcloud/docker"
+	"github.com/dotcloud/docker/devmapper"
 	"github.com/dotcloud/docker/utils"
 	"io/ioutil"
 	"log"
@@ -99,6 +100,14 @@ func removePidFile(pidfile string) {
 	}
 }
 
+func deviceSetFactory(root string) (docker.DeviceSet, error) {
+	set, err := devmapper.NewDeviceSetDM(root)
+	if err != nil {
+		return nil, err
+	}
+	return docker.DeviceSet(set), nil
+}
+
 func daemon(pidfile string, flGraphPath string, protoAddrs []string, autoRestart, enableCors bool, flDns string) error {
 	if err := createPidFile(pidfile); err != nil {
 		log.Fatal(err)
@@ -117,7 +126,7 @@ func daemon(pidfile string, flGraphPath string, protoAddrs []string, autoRestart
 	if flDns != "" {
 		dns = []string{flDns}
 	}
-	server, err := docker.NewServer(flGraphPath, autoRestart, enableCors, dns)
+	server, err := docker.NewServer(flGraphPath, autoRestart, enableCors, dns, deviceSetFactory)
 	if err != nil {
 		return err
 	}
