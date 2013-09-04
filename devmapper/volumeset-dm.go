@@ -237,10 +237,20 @@ func (volumes *VolumeSetDM) resumeDevice(info *VolumeInfo) error {
 	if task == nil {
 		return err
 	}
+
+	var cookie uint32 = 0
+	err = task.SetCookie (&cookie, 32)
+	if err != nil {
+		return fmt.Errorf("Can't set cookie")
+	}
+
 	err = task.Run()
 	if err != nil {
 		return fmt.Errorf("Error running DeviceSuspend")
 	}
+
+	UdevWait(cookie)
+
 	return nil
 }
 
