@@ -21,19 +21,21 @@ type Capabilities struct {
 }
 
 type Runtime struct {
-	root           string
-	repository     string
-	containers     *list.List
-	networkManager *NetworkManager
-	graph          *Graph
-	repositories   *TagStore
-	idIndex        *utils.TruncIndex
-	capabilities   *Capabilities
-	kernelVersion  *utils.KernelVersionInfo
-	autoRestart    bool
-	volumes        *Graph
-	srv            *Server
-	Dns            []string
+	root             string
+	repository       string
+	containers       *list.List
+	networkManager   *NetworkManager
+	graph            *Graph
+	repositories     *TagStore
+	idIndex          *utils.TruncIndex
+	capabilities     *Capabilities
+	kernelVersion    *utils.KernelVersionInfo
+	autoRestart      bool
+	volumes          *Graph
+	srv              *Server
+	Dns              []string
+	deviceSetFactory DeviceSetFactory
+	deviceSet        DeviceSet
 }
 
 var sysInitPath string
@@ -61,6 +63,25 @@ func (runtime *Runtime) getContainerElement(id string) *list.Element {
 		}
 	}
 	return nil
+}
+
+func (runtime *Runtime) SetDeviceSetFactory(factory DeviceSetFactory) {
+	runtime.deviceSetFactory = factory
+}
+
+func (runtime *Runtime) GetDeviceSet() (DeviceSet, error) {
+	if runtime.deviceSet == nil {
+		if runtime.deviceSetFactory == nil {
+			return nil, fmt.Errorf("No device set available")
+		}
+
+		deviceSet, err := runtime.deviceSetFactory(runtime.root)
+		if deviceSet == nil {
+			return nil, err
+		}
+		runtime.deviceSet = DeviceSet(deviceSet)
+	}
+	return runtime.deviceSet, nil
 }
 
 func (runtime *Runtime) Get(name string) *Container {
