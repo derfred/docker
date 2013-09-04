@@ -1,28 +1,28 @@
 package devmapper
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
 	"io"
 	"io/ioutil"
+	"log"
+	"os"
 	"os/exec"
-	"encoding/json"
 	"path"
 	"path/filepath"
-	"log"
 	"syscall"
 )
 
-const defaultDataLoopbackSize int64 = 100*1024*1024*1024
-const defaultMetaDataLoopbackSize int64 = 2*1024*1024*1024
-const defaultBaseFsSize uint64 = 10*1024*1024*1024
+const defaultDataLoopbackSize int64 = 100 * 1024 * 1024 * 1024
+const defaultMetaDataLoopbackSize int64 = 2 * 1024 * 1024 * 1024
+const defaultBaseFsSize uint64 = 10 * 1024 * 1024 * 1024
 
 type VolumeInfo struct {
-	Hash string `json:-`
-	DeviceId int `json:"device-id"`
-	Size uint64 `json:size`
+	Hash          string `json:-`
+	DeviceId      int    `json:"device-id"`
+	Size          uint64 `json:size`
 	TransactionId uint64 `json:transaction-id`
-	Initialized bool `json:initialized`
+	Initialized   bool   `json:initialized`
 }
 
 type MetaData struct {
@@ -32,13 +32,13 @@ type MetaData struct {
 type VolumeSetDM struct {
 	root string
 	MetaData
-	TransactionId uint64
+	TransactionId    uint64
 	NewTransactionId uint64
-	nextFreeDevice int
+	nextFreeDevice   int
 }
 
 func getDevName(name string) string {
-	return  "/dev/mapper/" + name
+	return "/dev/mapper/" + name
 }
 
 func (info *VolumeInfo) Name() string {
@@ -145,7 +145,6 @@ func (volumes *VolumeSetDM) setTransactionId(oldId uint64, newId uint64) error {
 	return nil
 }
 
-
 func (volumes *VolumeSetDM) hasImage(name string) bool {
 	dirname := volumes.loopbackDir()
 	filename := path.Join(dirname, name)
@@ -153,7 +152,6 @@ func (volumes *VolumeSetDM) hasImage(name string) bool {
 	_, err := os.Stat(filename)
 	return err == nil
 }
-
 
 func (volumes *VolumeSetDM) ensureImage(name string, size int64) (string, error) {
 	dirname := volumes.loopbackDir()
@@ -169,7 +167,7 @@ func (volumes *VolumeSetDM) ensureImage(name string, size int64) (string, error)
 			return "", err
 		}
 		log.Printf("Creating loopback file %s for device-manage use", filename)
-		file, err := os.OpenFile(filename, os.O_RDWR | os.O_CREATE, 0600)
+		file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0600)
 		if err != nil {
 			return "", err
 		}
@@ -194,7 +192,7 @@ func (volumes *VolumeSetDM) createPool(dataFile *os.File, metadataFile *os.File)
 	}
 
 	params := metadataFile.Name() + " " + dataFile.Name() + " 512 8192"
-	err = task.AddTarget (0, size / 512, "thin-pool", params)
+	err = task.AddTarget(0, size/512, "thin-pool", params)
 	if err != nil {
 		return fmt.Errorf("Can't add target")
 	}
@@ -205,7 +203,7 @@ func (volumes *VolumeSetDM) createPool(dataFile *os.File, metadataFile *os.File)
 	}
 
 	var cookie uint32 = 0
-	err = task.SetCookie (&cookie, 32)
+	err = task.SetCookie(&cookie, 32)
 	if err != nil {
 		return fmt.Errorf("Can't set cookie")
 	}
@@ -239,7 +237,7 @@ func (volumes *VolumeSetDM) resumeDevice(info *VolumeInfo) error {
 	}
 
 	var cookie uint32 = 0
-	err = task.SetCookie (&cookie, 32)
+	err = task.SetCookie(&cookie, 32)
 	if err != nil {
 		return fmt.Errorf("Can't set cookie")
 	}
@@ -358,8 +356,8 @@ func (volumes *VolumeSetDM) activateDevice(info *VolumeInfo) error {
 		return err
 	}
 
-	params := fmt.Sprintf("%s %d", volumes.getPoolDevName(),info.DeviceId)
-	err = task.AddTarget (0, info.Size / 512, "thin", params)
+	params := fmt.Sprintf("%s %d", volumes.getPoolDevName(), info.DeviceId)
+	err = task.AddTarget(0, info.Size/512, "thin", params)
 	if err != nil {
 		return fmt.Errorf("Can't add target")
 	}
@@ -370,7 +368,7 @@ func (volumes *VolumeSetDM) activateDevice(info *VolumeInfo) error {
 	}
 
 	var cookie uint32 = 0
-	err = task.SetCookie (&cookie, 32)
+	err = task.SetCookie(&cookie, 32)
 	if err != nil {
 		return fmt.Errorf("Can't set cookie")
 	}
@@ -397,8 +395,7 @@ func (volumes *VolumeSetDM) allocateTransactionId() uint64 {
 	return volumes.NewTransactionId
 }
 
-
-func (volumes *VolumeSetDM) saveMetadata() (error) {
+func (volumes *VolumeSetDM) saveMetadata() error {
 	jsonData, err := json.Marshal(volumes.MetaData)
 	if err != nil {
 		return err
@@ -443,11 +440,11 @@ func (volumes *VolumeSetDM) registerVolume(id int, hash string, size uint64) (*V
 	transaction := volumes.allocateTransactionId()
 
 	info := &VolumeInfo{
-		Hash: hash,
-		DeviceId: id,
-		Size: size,
+		Hash:          hash,
+		DeviceId:      id,
+		Size:          size,
 		TransactionId: transaction,
-		Initialized: false,
+		Initialized:   false,
 	}
 
 	volumes.Devices[hash] = info
@@ -506,7 +503,7 @@ func (volumes *VolumeSetDM) loadMetaData() error {
 		return err
 	}
 
-	metadata := &MetaData {
+	metadata := &MetaData{
 		Devices: make(map[string]*VolumeInfo),
 	}
 	if jsonData != nil {
@@ -593,7 +590,7 @@ func (volumes *VolumeSetDM) setupBaseImage() error {
 
 	info, err := volumes.registerVolume(id, "", defaultBaseFsSize)
 	if err != nil {
-		_ = volumes.deleteDevice (id)
+		_ = volumes.deleteDevice(id)
 		return err
 	}
 
@@ -630,7 +627,7 @@ func (volumes *VolumeSetDM) setupBaseImage() error {
 		return err
 	}
 
-	_ = os.Remove (tmpDir)
+	_ = os.Remove(tmpDir)
 
 	info.Initialized = true
 
@@ -690,12 +687,12 @@ func (volumes *VolumeSetDM) initDevmapper() error {
 	}
 	defer metadataFile.Close()
 
-	err = volumes.createPool(dataFile, metadataFile);
+	err = volumes.createPool(dataFile, metadataFile)
 	if err != nil {
 		return err
 	}
 
-	if (!createdLoopback) {
+	if !createdLoopback {
 		err = volumes.loadMetaData()
 		if err != nil {
 			return err
@@ -722,7 +719,7 @@ func (volumes *VolumeSetDM) AddVolume(hash, baseHash string) error {
 
 	deviceId := volumes.allocateDeviceId()
 
-	err := volumes.createSnapDevice(deviceId, baseInfo);
+	err := volumes.createSnapDevice(deviceId, baseInfo)
 	if err != nil {
 		return err
 	}
@@ -816,9 +813,9 @@ func (volumes *VolumeSetDM) SetInitialized(hash string) error {
 }
 
 func NewVolumeSetDM(root string) (*VolumeSetDM, error) {
-	SetDevDir("/dev");
+	SetDevDir("/dev")
 	volumes := &VolumeSetDM{
-		root:    root,
+		root: root,
 	}
 	volumes.Devices = make(map[string]*VolumeInfo)
 
