@@ -9,5 +9,3 @@ type DeviceSet interface {
 	HasDevice(hash string) bool
 	HasInitializedDevice(hash string) bool
 }
-
-type DeviceSetFactory func(string) (DeviceSet, error)

@@ -100,14 +100,6 @@ func removePidFile(pidfile string) {
 	}
 }
 
-func deviceSetFactory(root string) (docker.DeviceSet, error) {
-	set, err := devmapper.NewDeviceSetDM(root)
-	if err != nil {
-		return nil, err
-	}
-	return docker.DeviceSet(set), nil
-}
-
 func daemon(pidfile string, flGraphPath string, protoAddrs []string, autoRestart, enableCors bool, flDns string) error {
 	if err := createPidFile(pidfile); err != nil {
 		log.Fatal(err)
@@ -126,7 +118,7 @@ func daemon(pidfile string, flGraphPath string, protoAddrs []string, autoRestart
 	if flDns != "" {
 		dns = []string{flDns}
 	}
-	server, err := docker.NewServer(flGraphPath, autoRestart, enableCors, dns, deviceSetFactory)
+	server, err := docker.NewServer(flGraphPath, devmapper.NewDeviceSetDM(flGraphPath), autoRestart, enableCors, dns)
 	if err != nil {
 		return err
 	}

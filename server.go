@@ -1246,15 +1246,14 @@ func (srv *Server) ContainerCopy(name string, resource string, out io.Writer) er
 
 }
 
-func NewServer(flGraphPath string, autoRestart, enableCors bool, dns ListOpts, deviceSetFactory DeviceSetFactory) (*Server, error) {
+func NewServer(flGraphPath string, deviceSet DeviceSet, autoRestart, enableCors bool, dns ListOpts) (*Server, error) {
 	if runtime.GOARCH != "amd64" {
 		log.Fatalf("The docker runtime currently only supports amd64 (not %s). This will change in the future. Aborting.", runtime.GOARCH)
 	}
-	runtime, err := NewRuntime(flGraphPath, autoRestart, dns)
+	runtime, err := NewRuntime(flGraphPath, deviceSet, autoRestart, dns)
 	if err != nil {
 		return nil, err
 	}
-	runtime.SetDeviceSetFactory(deviceSetFactory)
 	srv := &Server{
 		runtime:     runtime,
 		enableCors:  enableCors,

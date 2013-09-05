@@ -12,11 +12,7 @@ func usage() {
 }
 
 func main() {
-	devices, err := devmapper.NewDeviceSetDM("/var/lib/docker")
-	if err != nil {
-		fmt.Println("Setup failed:", err)
-		os.Exit(1)
-	}
+	devices := devmapper.NewDeviceSetDM("/var/lib/docker")
 
 	if len(os.Args) < 2 {
 		usage()
@@ -28,7 +24,7 @@ func main() {
 			usage()
 		}
 
-		err = devices.AddDevice(os.Args[2], os.Args[3])
+		err := devices.AddDevice(os.Args[2], os.Args[3])
 		if err != nil {
 			fmt.Println("Can't create snap device: ", err)
 			os.Exit(1)
@@ -38,7 +34,7 @@ func main() {
 			usage()
 		}
 
-		err = devices.RemoveDevice(os.Args[2])
+		err := devices.RemoveDevice(os.Args[2])
 		if err != nil {
 			fmt.Println("Can't remove device: ", err)
 			os.Exit(1)
@@ -48,7 +44,7 @@ func main() {
 			usage()
 		}
 
-		err = devices.MountDevice(os.Args[2], os.Args[3])
+		err := devices.MountDevice(os.Args[2], os.Args[3])
 		if err != nil {
 			fmt.Println("Can't create snap device: ", err)
 			os.Exit(1)

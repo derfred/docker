@@ -42,7 +42,6 @@ type Runtime struct {
 	volumes          *Graph
 	srv              *Server
 	Dns              []string
-	deviceSetFactory DeviceSetFactory
 	deviceSet        DeviceSet
 	mountMethod      MountMethod
 }
@@ -114,21 +113,13 @@ func (runtime *Runtime) GetMountMethod() MountMethod {
 	return runtime.mountMethod
 }
 
-func (runtime *Runtime) SetDeviceSetFactory(factory DeviceSetFactory) {
-	runtime.deviceSetFactory = factory
+func (runtime *Runtime) SetDeviceSet(devices DeviceSet) {
+	runtime.deviceSet = devices
 }
 
 func (runtime *Runtime) GetDeviceSet() (DeviceSet, error) {
 	if runtime.deviceSet == nil {
-		if runtime.deviceSetFactory == nil {
-			return nil, fmt.Errorf("No device set available")
-		}
-
-		deviceSet, err := runtime.deviceSetFactory(runtime.root)
-		if deviceSet == nil {
-			return nil, err
-		}
-		runtime.deviceSet = DeviceSet(deviceSet)
+		return nil, fmt.Errorf("No device set available")
 	}
 	return runtime.deviceSet, nil
 }
@@ -334,8 +325,8 @@ func (runtime *Runtime) UpdateCapabilities(quiet bool) {
 }
 
 // FIXME: harmonize with NewGraph()
-func NewRuntime(flGraphPath string, autoRestart bool, dns []string) (*Runtime, error) {
-	runtime, err := NewRuntimeFromDirectory(flGraphPath, autoRestart)
+func NewRuntime(flGraphPath string, deviceSet DeviceSet, autoRestart bool, dns []string) (*Runtime, error) {
+	runtime, err := NewRuntimeFromDirectory(flGraphPath, deviceSet, autoRestart)
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +344,7 @@ func NewRuntime(flGraphPath string, autoRestart bool, dns []string) (*Runtime, e
 	return runtime, nil
 }
 
-func NewRuntimeFromDirectory(root string, autoRestart bool) (*Runtime, error) {
+func NewRuntimeFromDirectory(root string, deviceSet DeviceSet, autoRestart bool) (*Runtime, error) {
 	runtimeRepo := path.Join(root, "containers")
 
 	if err := os.MkdirAll(runtimeRepo, 0700); err != nil && !os.IsExist(err) {
@@ -390,6 +381,7 @@ func NewRuntimeFromDirectory(root string, autoRestart bool) (*Runtime, error) {
 		capabilities:   &Capabilities{},
 		autoRestart:    autoRestart,
 		volumes:        volumes,
+		deviceSet:      deviceSet,
 	}
 
 	if err := runtime.restore(); err != nil {

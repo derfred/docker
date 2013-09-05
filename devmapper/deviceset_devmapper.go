@@ -872,7 +872,7 @@ func (devices *DeviceSetDM) ensureInit() error {
 	return nil
 }
 
-func NewDeviceSetDM(root string) (*DeviceSetDM, error) {
+func NewDeviceSetDM(root string) *DeviceSetDM {
 	SetDevDir("/dev")
 	devices := &DeviceSetDM{
 		initialized: false,
@@ -880,5 +880,5 @@ func NewDeviceSetDM(root string) (*DeviceSetDM, error) {
 	}
 	devices.Devices = make(map[string]*DevInfo)
 
-	return devices, nil
+	return devices
 }
