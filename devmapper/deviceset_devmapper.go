@@ -30,6 +30,7 @@ type MetaData struct {
 }
 
 type DeviceSetDM struct {
+	initialized bool
 	root string
 	MetaData
 	TransactionId    uint64
@@ -708,6 +709,10 @@ func (devices *DeviceSetDM) initDevmapper() error {
 }
 
 func (devices *DeviceSetDM) AddDevice(hash, baseHash string) error {
+	if err := devices.ensureInit(); err != nil {
+		return err
+	}
+
 	if devices.Devices[hash] != nil {
 		return fmt.Errorf("hash %s already exists", hash)
 	}
@@ -733,6 +738,10 @@ func (devices *DeviceSetDM) AddDevice(hash, baseHash string) error {
 }
 
 func (devices *DeviceSetDM) RemoveDevice(hash string) error {
+	if err := devices.ensureInit(); err != nil {
+		return err
+	}
+
 	info := devices.Devices[hash]
 	if info == nil {
 		return fmt.Errorf("hash %s doesn't exists", hash)
@@ -772,6 +781,10 @@ func (devices *DeviceSetDM) RemoveDevice(hash string) error {
 }
 
 func (devices *DeviceSetDM) DeactivateDevice(hash string) error {
+	if err := devices.ensureInit(); err != nil {
+		return err
+	}
+
 	info := devices.Devices[hash]
 	if info == nil {
 		return fmt.Errorf("hash %s doesn't exists", hash)
@@ -792,6 +805,10 @@ func (devices *DeviceSetDM) DeactivateDevice(hash string) error {
 }
 
 func (devices *DeviceSetDM) MountDevice(hash, path string) error {
+	if err := devices.ensureInit(); err != nil {
+		return err
+	}
+
 	err := devices.activateDeviceIfNeeded(hash)
 	if err != nil {
 		return err
@@ -807,16 +824,28 @@ func (devices *DeviceSetDM) MountDevice(hash, path string) error {
 }
 
 func (devices *DeviceSetDM) HasDevice(hash string) bool {
+	if err := devices.ensureInit(); err != nil {
+		return false
+	}
+
 	info := devices.Devices[hash]
 	return info != nil
 }
 
 func (devices *DeviceSetDM) HasInitializedDevice(hash string) bool {
+	if err := devices.ensureInit(); err != nil {
+		return false
+	}
+
 	info := devices.Devices[hash]
 	return info != nil && info.Initialized
 }
 
 func (devices *DeviceSetDM) SetInitialized(hash string) error {
+	if err := devices.ensureInit(); err != nil {
+		return err
+	}
+
 	info := devices.Devices[hash]
 	if info == nil {
 		return fmt.Errorf("Unknown device %s", hash)
@@ -832,16 +861,24 @@ func (devices *DeviceSetDM) SetInitialized(hash string) error {
 	return nil
 }
 
+func (devices *DeviceSetDM) ensureInit() error {
+	if (!devices.initialized) {
+		devices.initialized = true
+		err := devices.initDevmapper()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func NewDeviceSetDM(root string) (*DeviceSetDM, error) {
 	SetDevDir("/dev")
 	devices := &DeviceSetDM{
+		initialized: false,
 		root: root,
 	}
 	devices.Devices = make(map[string]*DevInfo)
 
-	err := devices.initDevmapper()
-	if err != nil {
-		return nil, err
-	}
 	return devices, nil
 }
