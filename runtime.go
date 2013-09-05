@@ -113,10 +113,6 @@ func (runtime *Runtime) GetMountMethod() MountMethod {
 	return runtime.mountMethod
 }
 
-func (runtime *Runtime) SetDeviceSet(devices DeviceSet) {
-	runtime.deviceSet = devices
-}
-
 func (runtime *Runtime) GetDeviceSet() (DeviceSet, error) {
 	if runtime.deviceSet == nil {
 		return nil, fmt.Errorf("No device set available")
