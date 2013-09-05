@@ -148,13 +148,6 @@ const (
 	DeviceSetGeometry
 )
 
-type AddNodeBehavior int
-
-const (
-	AddNodeOnResume AddNodeBehavior = iota
-	AddNodeOnCreate
-)
-
 type Task struct {
 	unmanaged *C.struct_dm_task
 }
@@ -215,14 +208,6 @@ func (t *Task) SetMessage(message string) error {
 	res := C.dm_task_set_message(t.unmanaged, c_message)
 	if res != 1 {
 		return fmt.Errorf("dm_task_set_message failed")
-	}
-	return nil
-}
-
-func (t *Task) SetAddNode(behaviour AddNodeBehavior) error {
-	res := C.dm_task_set_add_node(t.unmanaged, C.dm_add_node_t(behaviour))
-	if res != 1 {
-		return fmt.Errorf("dm_task_set_add_node failed")
 	}
 	return nil
 }

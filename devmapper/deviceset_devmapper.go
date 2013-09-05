@@ -197,11 +197,6 @@ func (devices *DeviceSetDM) createPool(dataFile *os.File, metadataFile *os.File)
 		return fmt.Errorf("Can't add target")
 	}
 
-	err = task.SetAddNode(AddNodeOnResume)
-	if err != nil {
-		return fmt.Errorf("Can't set add mode")
-	}
-
 	var cookie uint32 = 0
 	err = task.SetCookie(&cookie, 32)
 	if err != nil {
@@ -370,11 +365,6 @@ func (devices *DeviceSetDM) activateDevice(info *DevInfo) error {
 	err = task.AddTarget(0, info.Size/512, "thin", params)
 	if err != nil {
 		return fmt.Errorf("Can't add target")
-	}
-
-	err = task.SetAddNode(AddNodeOnResume)
-	if err != nil {
-		return fmt.Errorf("Can't set add mode")
 	}
 
 	var cookie uint32 = 0
