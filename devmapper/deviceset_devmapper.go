@@ -18,11 +18,11 @@ const defaultMetaDataLoopbackSize int64 = 2 * 1024 * 1024 * 1024
 const defaultBaseFsSize uint64 = 10 * 1024 * 1024 * 1024
 
 type DevInfo struct {
-	Hash          string `json:-`
-	DeviceId      int    `json:"device-id"`
-	Size          uint64 `json:size`
-	TransactionId uint64 `json:transaction-id`
-	Initialized   bool   `json:initialized`
+	Hash          string `json:"hash"`
+	DeviceId      int    `json:"device_id"`
+	Size          uint64 `json:"size"`
+	TransactionId uint64 `json:"transaction_id"`
+	Initialized   bool   `json:"initialized"`
 }
 
 type MetaData struct {
