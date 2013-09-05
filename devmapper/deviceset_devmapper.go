@@ -18,7 +18,7 @@ const defaultMetaDataLoopbackSize int64 = 2 * 1024 * 1024 * 1024
 const defaultBaseFsSize uint64 = 10 * 1024 * 1024 * 1024
 
 type DevInfo struct {
-	Hash          string `json:"hash"`
+	Hash          string `json:"-"`
 	DeviceId      int    `json:"device_id"`
 	Size          uint64 `json:"size"`
 	TransactionId uint64 `json:"transaction_id"`
@@ -515,6 +515,8 @@ func (devices *DeviceSetDM) loadMetaData() error {
 	devices.MetaData = *metadata
 
 	for hash, d := range devices.Devices {
+		d.Hash = hash
+
 		if d.DeviceId >= devices.nextFreeDevice {
 			devices.nextFreeDevice = d.DeviceId + 1
 		}
