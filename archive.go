@@ -322,7 +322,9 @@ func CmdStream(cmd *exec.Cmd, input *string, atEnd func()) (io.Reader, error) {
 		} else {
 			pipeW.Close()
 		}
-		atEnd()
+		if atEnd != nil {
+			atEnd()
+		}
 	}()
 	// Run the command and return the pipe
 	if err := cmd.Start(); err != nil {
