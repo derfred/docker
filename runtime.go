@@ -49,9 +49,14 @@ type Runtime struct {
 var sysInitPath string
 
 func init() {
-	sysInitPath = utils.SelfPath()
-	if strings.HasSuffix(sysInitPath, "/docker-daemon") {
-		sysInitPath = sysInitPath[:len(sysInitPath)-len("/docker-daemon")] + "/docker"
+	env := os.Getenv("_DOCKER_CLIENT_PATH")
+	if env != "" {
+		sysInitPath = env
+	} else {
+		sysInitPath = utils.SelfPath()
+		if strings.HasSuffix(sysInitPath, "/docker-daemon") {
+			sysInitPath = sysInitPath[:len(sysInitPath)-len("/docker-daemon")] + "/docker"
+		}
 	}
 }
 
