@@ -469,7 +469,7 @@ func (image *Image) Unmount(runtime *Runtime, root string, id string) error {
 	case MountMethodDeviceMapper:
 		// Try to deactivate the device as generally there is no use for it anymore
 		devices, err := runtime.GetDeviceSet()
-		if err == nil {
+		if err != nil {
 			return err;
 		}
 
