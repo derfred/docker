@@ -148,7 +148,7 @@ func TestMount(t *testing.T) {
 	}
 	// FIXME: test for mount contents
 	defer func() {
-		if err := Unmount(rootfs); err != nil {
+		if err := image.Unmount(runtime, rootfs, "testing"); err != nil {
 			t.Error(err)
 		}
 	}()
