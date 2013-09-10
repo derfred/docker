@@ -12,6 +12,7 @@ package devmapper
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <linux/fs.h>
+#include <errno.h>
 
 static char *
 attach_loop_device(const char *filename, int *loop_fd_out)
@@ -19,71 +20,80 @@ attach_loop_device(const char *filename, int *loop_fd_out)
   struct loop_info64 loopinfo = { 0 };
   struct stat st;
   char buf[64];
-  int i, loop_fd, fd;
+  int i, loop_fd, fd, start_index;
   char *loopname;
 
   *loop_fd_out = -1;
 
-  loop_fd = open("/dev/loop-control", O_RDONLY);
-  if (loop_fd < 0)
-    return NULL;
+  start_index = 0;
+  fd = open("/dev/loop-control", O_RDONLY);
+  if (fd == 0) {
+    start_index = ioctl(fd, LOOP_CTL_GET_FREE);
+    close(fd);
 
-  i = ioctl(loop_fd, LOOP_CTL_GET_FREE);
-  close(loop_fd);
-
-  if (i < 0) {
-    return NULL;
-  }
-
-  if (sprintf(buf, "/dev/loop%d", i) < 0) {
-    return NULL;
-  }
-
-  if (stat(buf, &st) ||
-      !S_ISBLK(st.st_mode))
-    return NULL;
-
-  loopname = strdup(buf);
-  if (loopname == NULL)
-    return NULL;
-
-  loop_fd = open(loopname, O_RDWR);
-  if (loop_fd < 0) {
-    free(loopname);
-    return NULL;
+    if (start_index < 0)
+      start_index = 0;
   }
 
   fd = open(filename, O_RDWR);
   if (fd < 0) {
-    free(loopname);
-    close(loop_fd);
     return NULL;
   }
 
-  if (ioctl (loop_fd, LOOP_SET_FD, (void *)(size_t)fd) < 0) {
-    free(loopname);
-    close(loop_fd);
-    close (fd);
-    return NULL;
-  }
-
-  close (fd);
-
-  strncpy((char*)loopinfo.lo_file_name, filename, LO_NAME_SIZE);
-  loopinfo.lo_offset = 0;
-  loopinfo.lo_flags = LO_FLAGS_AUTOCLEAR;
-
-  if (ioctl(loop_fd, LOOP_SET_STATUS64, &loopinfo) < 0)
-    {
-      ioctl(loop_fd, LOOP_CLR_FD, 0);
-      close(loop_fd);
-      free(loopname);
+  loop_fd = -1;
+  for (i = start_index ; loop_fd < 0 ; i++ ) {
+    if (sprintf(buf, "/dev/loop%d", i) < 0) {
+      close(fd);
       return NULL;
     }
 
-  *loop_fd_out = loop_fd;
+    if (stat(buf, &st) || !S_ISBLK(st.st_mode)) {
+      close(fd);
+      return NULL;
+    }
 
-  return loopname;
+    loop_fd = open(buf, O_RDWR);
+    if (loop_fd < 0 && errno == ENOENT) {
+      close(fd);
+      fprintf (stderr, "no available loopback device!");
+      return NULL;
+    } else if (loop_fd < 0)
+      continue;
+
+    if (ioctl (loop_fd, LOOP_SET_FD, (void *)(size_t)fd) < 0) {
+      close(loop_fd);
+      loop_fd = -1;
+      if (errno != EBUSY) {
+        close (fd);
+        fprintf (stderr, "cannot set up loopback device %s", buf);
+        return NULL;
+      }
+      continue;
+    }
+
+    close (fd);
+
+    strncpy((char*)loopinfo.lo_file_name, buf, LO_NAME_SIZE);
+    loopinfo.lo_offset = 0;
+    loopinfo.lo_flags = LO_FLAGS_AUTOCLEAR;
+
+    if (ioctl(loop_fd, LOOP_SET_STATUS64, &loopinfo) < 0) {
+      ioctl(loop_fd, LOOP_CLR_FD, 0);
+      close(loop_fd);
+      fprintf (stderr, "cannot set up loopback device info");
+      return NULL;
+    }
+
+    loopname = strdup(buf);
+    if (loopname == NULL) {
+      close(loop_fd);
+      return NULL;
+    }
+
+    *loop_fd_out = loop_fd;
+    return loopname;
+  }
+  return NULL;
 }
 
 static int64_t
