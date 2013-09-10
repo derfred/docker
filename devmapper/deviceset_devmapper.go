@@ -486,6 +486,10 @@ func (devices *DeviceSetDM) createFilesystem(info *DevInfo) error {
 	err := exec.Command("mkfs.ext4", "-E",
 		"discard,lazy_itable_init=0,lazy_journal_init=0", devname).Run()
 	if err != nil {
+		err = exec.Command("mkfs.ext4", "-E",
+		"discard,lazy_itable_init=0", devname).Run()
+	}
+	if err != nil {
 		return err
 	}
 	return nil
@@ -859,6 +863,9 @@ func (devices *DeviceSetDM) MountDevice(hash, path string) error {
 	info := devices.Devices[hash]
 
 	err = syscall.Mount(info.DevName(), path, "ext4", syscall.MS_MGC_VAL, "discard")
+	if err != nil && err == syscall.EINVAL {
+		err = syscall.Mount(info.DevName(), path, "ext4", syscall.MS_MGC_VAL, "")
+	}
 	if err != nil {
 		return err
 	}
