@@ -3,6 +3,7 @@ package docker
 import (
 	"fmt"
 	"github.com/dotcloud/docker/utils"
+	"io/ioutil"
 	"strconv"
 	"strings"
 )
@@ -287,4 +288,18 @@ func migratePortMappings(config *Config) error {
 // name:alias
 func parseLink(rawLink string) (map[string]string, error) {
 	return utils.PartParser("name:alias", rawLink)
+}
+
+func RootIsShared() bool {
+	if data, err := ioutil.ReadFile("/proc/self/mountinfo"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			cols := strings.Split(line, " ")
+			if len(cols) >= 6 && cols[4] == "/" {
+				return strings.HasPrefix(cols[6], "shared")
+			}
+		}
+	}
+
+	// No idea, probably safe to assume so
+	return true
 }
