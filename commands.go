@@ -463,14 +463,22 @@ func (cli *DockerCli) CmdInfo(args ...string) error {
 		return nil
 	}
 
-	body, _, err := cli.call("GET", "/info", nil)
-	if err != nil {
-		return err
-	}
-
 	var out APIInfo
-	if err := json.Unmarshal(body, &out); err != nil {
-		return err
+
+	daemon := cli.getDBusObject()
+	if daemon != nil {
+		if err := daemon.Call("com.dotcloud.Docker.Daemon.GetInfo", 0).Store(&out); err != nil {
+			return err
+		}
+	} else {
+		body, _, err := cli.call("GET", "/info", nil)
+		if err != nil {
+			return err
+		}
+
+		if err := json.Unmarshal(body, &out); err != nil {
+			return err
+		}
 	}
 
 	fmt.Fprintf(cli.out, "Containers: %d\n", out.Containers)

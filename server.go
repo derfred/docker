@@ -270,16 +270,16 @@ func (srv *Server) DockerInfo() *APIInfo {
 	}
 
 	return &APIInfo{
-		Containers:         len(srv.runtime.List()),
-		Images:             imgcount,
+		Containers:         int32(len(srv.runtime.List())),
+		Images:             int32(imgcount),
 		MemoryLimit:        srv.runtime.capabilities.MemoryLimit,
 		SwapLimit:          srv.runtime.capabilities.SwapLimit,
 		IPv4Forwarding:     !srv.runtime.capabilities.IPv4ForwardingDisabled,
 		Debug:              os.Getenv("DEBUG") != "",
-		NFd:                utils.GetTotalUsedFds(),
-		NGoroutines:        runtime.NumGoroutine(),
+		NFd:                int32(utils.GetTotalUsedFds()),
+		NGoroutines:        int32(runtime.NumGoroutine()),
 		LXCVersion:         lxcVersion,
-		NEventsListener:    len(srv.events),
+		NEventsListener:    int32(len(srv.events)),
 		KernelVersion:      kernelVersion,
 		IndexServerAddress: auth.IndexServerAddress(),
 	}
@@ -1391,4 +1391,8 @@ func (srv *Server) PublishDbus() error {
 		"org.freedesktop.DBus.Introspectable")
 
 	return nil
+}
+
+func (dsrv *DBusServer) GetInfo () (APIInfo, *dbus.Error) {
+	return *dsrv.srv.DockerInfo(), nil
 }
