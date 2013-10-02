@@ -8,6 +8,8 @@ import (
 	"github.com/dotcloud/docker/auth"
 	"github.com/dotcloud/docker/registry"
 	"github.com/dotcloud/docker/utils"
+	"github.com/guelfey/go.dbus"
+	"github.com/guelfey/go.dbus/introspect"
 	"io"
 	"io/ioutil"
 	"log"
@@ -1353,4 +1355,40 @@ type Server struct {
 	events      []utils.JSONMessage
 	listeners   map[string]chan utils.JSONMessage
 	reqFactory  *utils.HTTPRequestFactory
+}
+
+type DBusServer struct {
+	srv *Server
+}
+
+func (srv *Server) PublishDbus() error {
+	conn, err := dbus.SystemBus()
+	if err != nil {
+		return err
+	}
+
+	reply, err := conn.RequestName("com.dotcloud.Docker", dbus.NameFlagDoNotQueue)
+	if err != nil {
+		return err
+	} else if reply != dbus.RequestNameReplyPrimaryOwner {
+		return fmt.Errorf("com.dotcloud.Docker name already taken")
+	}
+
+	dsrv := &DBusServer{srv}
+	conn.Export(dsrv, "/com/dotcloud/Docker", "com.dotcloud.Docker.Daemon")
+
+	n := &introspect.Node{
+		Name: "/com/dotcloud/Docker",
+		Interfaces: []introspect.Interface{
+			introspect.IntrospectData,
+			{
+				Name:       "com.dotcloud.Docker.Daemon",
+				Methods:    introspect.Methods(dsrv),
+			},
+		},
+	}
+	conn.Export(introspect.NewIntrospectable(n), "/com/dotcloud/Docker",
+		"org.freedesktop.DBus.Introspectable")
+
+	return nil
 }

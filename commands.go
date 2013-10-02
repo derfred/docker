@@ -13,6 +13,7 @@ import (
 	"github.com/dotcloud/docker/registry"
 	"github.com/dotcloud/docker/term"
 	"github.com/dotcloud/docker/utils"
+	"github.com/guelfey/go.dbus"
 	"io"
 	"io/ioutil"
 	"net"
@@ -441,6 +442,15 @@ func (cli *DockerCli) CmdVersion(args ...string) error {
 	}
 	return nil
 }
+
+func (cli *DockerCli) getDBusObject() *dbus.Object {
+	conn, err := dbus.SystemBus()
+	if err != nil {
+		return nil
+	}
+	return conn.Object("com.dotcloud.Docker", "/com/dotcloud/Docker")
+}
+
 
 // 'docker info': display system-wide information.
 func (cli *DockerCli) CmdInfo(args ...string) error {

@@ -137,6 +137,12 @@ func daemon(pidfile string, flGraphPath string, protoAddrs []string, autoRestart
 	if err != nil {
 		return err
 	}
+
+	err = server.PublishDbus()
+	if err != nil {
+		log.Printf("Can't publish on system bus: %s", err)
+	}
+
 	chErrors := make(chan error, len(protoAddrs))
 	for _, protoAddr := range protoAddrs {
 		protoAddrParts := strings.SplitN(protoAddr, "://", 2)
