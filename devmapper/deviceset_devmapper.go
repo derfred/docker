@@ -587,7 +587,7 @@ func (devices *DeviceSetDM) MountDevice(hash, path string) error {
 	return nil
 }
 
-func (devices *DeviceSetDM) UnmountDevice(hash, path string) error {
+func (devices *DeviceSetDM) UnmountDevice(hash, path string, deactivate bool) error {
 	devices.Lock()
 	defer devices.Unlock()
 
@@ -600,6 +600,10 @@ func (devices *DeviceSetDM) UnmountDevice(hash, path string) error {
 		devices.activeMounts[path] = count - 1
 	} else {
 		delete(devices.activeMounts, path)
+	}
+
+	if deactivate {
+		devices.deactivateDevice(hash)
 	}
 
 	return nil
