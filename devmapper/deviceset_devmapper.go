@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"sync"
 )
 
 const (
@@ -36,6 +37,7 @@ type MetaData struct {
 
 type DeviceSetDM struct {
 	MetaData
+	sync.Mutex
 	initialized      bool
 	root             string
 	devicePrefix     string
@@ -265,7 +267,7 @@ func (devices *DeviceSetDM) setupBaseImage() error {
 
 	if oldInfo != nil && !oldInfo.Initialized {
 		utils.Debugf("Removing uninitialized base image")
-		if err := devices.RemoveDevice(""); err != nil {
+		if err := devices.removeDevice(""); err != nil {
 			utils.Debugf("\n--->Err: %s\n", err)
 			return err
 		}
@@ -401,6 +403,9 @@ func (devices *DeviceSetDM) initDevmapper() error {
 }
 
 func (devices *DeviceSetDM) AddDevice(hash, baseHash string) error {
+	devices.Lock()
+	defer devices.Unlock()
+
 	if err := devices.ensureInit(); err != nil {
 		utils.Debugf("Error init: %s\n", err)
 		return err
@@ -431,12 +436,7 @@ func (devices *DeviceSetDM) AddDevice(hash, baseHash string) error {
 	return nil
 }
 
-func (devices *DeviceSetDM) RemoveDevice(hash string) error {
-	if err := devices.ensureInit(); err != nil {
-		utils.Debugf("\n--->Err: %s\n", err)
-		return err
-	}
-
+func (devices *DeviceSetDM) removeDevice(hash string) error {
 	info := devices.Devices[hash]
 	if info == nil {
 		return fmt.Errorf("hash %s doesn't exists", hash)
@@ -475,12 +475,20 @@ func (devices *DeviceSetDM) RemoveDevice(hash string) error {
 	return nil
 }
 
-func (devices *DeviceSetDM) DeactivateDevice(hash string) error {
+func (devices *DeviceSetDM) RemoveDevice(hash string) error {
+	devices.Lock()
+	defer devices.Unlock()
+
 	if err := devices.ensureInit(); err != nil {
 		utils.Debugf("\n--->Err: %s\n", err)
 		return err
 	}
 
+
+	return devices.removeDevice(hash)
+}
+
+func (devices *DeviceSetDM) deactivateDevice(hash string) error {
 	info := devices.Devices[hash]
 	if info == nil {
 		return fmt.Errorf("hash %s doesn't exists", hash)
@@ -501,7 +509,24 @@ func (devices *DeviceSetDM) DeactivateDevice(hash string) error {
 	return nil
 }
 
+func (devices *DeviceSetDM) DeactivateDevice(hash string) error {
+	devices.Lock()
+	defer devices.Unlock()
+
+	if err := devices.ensureInit(); err != nil {
+		utils.Debugf("\n--->Err: %s\n", err)
+		return err
+	}
+
+	utils.Debugf("DeactivateDevice %s", hash)
+	return devices.deactivateDevice(hash);
+}
+
+
 func (devices *DeviceSetDM) Shutdown() error {
+	devices.Lock()
+	defer devices.Unlock()
+
 	if !devices.initialized {
 		return nil
 	}
@@ -532,6 +557,9 @@ func (devices *DeviceSetDM) Shutdown() error {
 }
 
 func (devices *DeviceSetDM) MountDevice(hash, path string) error {
+	devices.Lock()
+	defer devices.Unlock()
+
 	if err := devices.ensureInit(); err != nil {
 		utils.Debugf("\n--->Err: %s\n", err)
 		return err
@@ -560,6 +588,9 @@ func (devices *DeviceSetDM) MountDevice(hash, path string) error {
 }
 
 func (devices *DeviceSetDM) UnmountDevice(hash, path string) error {
+	devices.Lock()
+	defer devices.Unlock()
+
 	if err := syscall.Unmount(path, 0); err != nil {
 		utils.Debugf("\n--->Err: %s\n", err)
 		return err
@@ -575,6 +606,9 @@ func (devices *DeviceSetDM) UnmountDevice(hash, path string) error {
 }
 
 func (devices *DeviceSetDM) HasDevice(hash string) bool {
+	devices.Lock()
+	defer devices.Unlock()
+
 	if err := devices.ensureInit(); err != nil {
 		return false
 	}
@@ -582,6 +616,9 @@ func (devices *DeviceSetDM) HasDevice(hash string) bool {
 }
 
 func (devices *DeviceSetDM) HasInitializedDevice(hash string) bool {
+	devices.Lock()
+	defer devices.Unlock()
+
 	if err := devices.ensureInit(); err != nil {
 		return false
 	}
@@ -591,6 +628,9 @@ func (devices *DeviceSetDM) HasInitializedDevice(hash string) bool {
 }
 
 func (devices *DeviceSetDM) HasActivatedDevice(hash string) bool {
+	devices.Lock()
+	defer devices.Unlock()
+
 	if err := devices.ensureInit(); err != nil {
 		return false
 	}
@@ -604,6 +644,9 @@ func (devices *DeviceSetDM) HasActivatedDevice(hash string) bool {
 }
 
 func (devices *DeviceSetDM) SetInitialized(hash string) error {
+	devices.Lock()
+	defer devices.Unlock()
+
 	if err := devices.ensureInit(); err != nil {
 		utils.Debugf("\n--->Err: %s\n", err)
 		return err
