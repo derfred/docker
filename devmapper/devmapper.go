@@ -14,6 +14,10 @@ package devmapper
 #include <linux/fs.h>
 #include <errno.h>
 
+#ifndef LOOP_CTL_GET_FREE
+#define LOOP_CTL_GET_FREE       0x4C82
+#endif
+
 char*			attach_loop_device(const char *filename, int *loop_fd_out)
 {
   struct loop_info64	loopinfo = {0};
