@@ -56,19 +56,18 @@ char*			attach_loop_device(const char *filename, int *loop_fd_out)
     loop_fd = open(buf, O_RDWR);
     if (loop_fd < 0 && errno == ENOENT) {
       close(fd);
-      perror("open");
       fprintf (stderr, "no available loopback device!");
       return NULL;
     } else if (loop_fd < 0)
       continue;
 
     if (ioctl (loop_fd, LOOP_SET_FD, (void *)(size_t)fd) < 0) {
-      perror("ioctl");
+      int errsv = errno;
       close(loop_fd);
       loop_fd = -1;
-      if (errno != EBUSY) {
+      if (errsv != EBUSY) {
         close (fd);
-        fprintf (stderr, "cannot set up loopback device %s", buf);
+        fprintf (stderr, "cannot set up loopback device %s: %s", buf, strerror(errsv));
         return NULL;
       }
       continue;
