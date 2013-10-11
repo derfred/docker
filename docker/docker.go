@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/dotcloud/docker"
+	"github.com/dotcloud/docker/devmapper"
 	"github.com/dotcloud/docker/utils"
 	"io/ioutil"
 	"log"
@@ -85,6 +86,7 @@ func main() {
 			BridgeIface:    bridge,
 			ProtoAddresses: flHosts,
 			DefaultIp:      ip,
+			DeviceSet:      devmapper.NewDeviceSetDM(*flGraphPath),
 		}
 		if err := daemon(config); err != nil {
 			log.Fatal(err)

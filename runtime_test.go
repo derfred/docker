@@ -3,6 +3,7 @@ package docker
 import (
 	"bytes"
 	"fmt"
+	"github.com/dotcloud/docker/devmapper"
 	"github.com/dotcloud/docker/utils"
 	"io"
 	"log"
@@ -18,12 +19,13 @@ import (
 )
 
 const (
-	unitTestImageName     = "docker-test-image"
-	unitTestImageID       = "83599e29c455eb719f77d799bc7c51521b9551972f5a850d7ad265bc1b5292f6" // 1.0
-	unitTestNetworkBridge = "testdockbr0"
-	unitTestStoreBase     = "/var/lib/docker/unit-tests"
-	testDaemonAddr        = "127.0.0.1:4270"
-	testDaemonProto       = "tcp"
+	unitTestImageName        = "docker-test-image"
+	unitTestImageID          = "83599e29c455eb719f77d799bc7c51521b9551972f5a850d7ad265bc1b5292f6" // 1.0
+	unitTestNetworkBridge    = "testdockbr0"
+	unitTestStoreBase        = "/var/lib/docker/unit-tests"
+	unitTestStoreDevicesBase = "/var/lib/docker/unit-tests-devices"
+	testDaemonAddr           = "127.0.0.1:4270"
+	testDaemonProto          = "tcp"
 )
 
 var (
@@ -56,9 +58,15 @@ func cleanup(runtime *Runtime) error {
 	}
 	for _, image := range images {
 		if image.ID != unitTestImageID {
-			runtime.graph.Delete(image.ID)
+			runtime.DeleteImage(image.ID)
 		}
 	}
+	return nil
+}
+
+func cleanupLast(runtime *Runtime) error {
+	cleanup(runtime)
+	runtime.config.DeviceSet.Shutdown()
 	return nil
 }
 
@@ -84,11 +92,17 @@ func init() {
 		log.Fatal("docker tests need to be run as root")
 	}
 
+	deviceset := devmapper.NewDeviceSetDM(unitTestStoreDevicesBase)
+	// Create a device, which triggers the initiation of the base FS
+	// This avoids other tests doing this and timing out
+	deviceset.AddDevice("init", "")
+
 	// Make it our Store root
 	config := &DaemonConfig{
 		GraphPath:   unitTestStoreBase,
 		AutoRestart: false,
 		BridgeIface: unitTestNetworkBridge,
+		DeviceSet:   deviceset,
 	}
 	if runtime, err := NewRuntimeFromDirectory(config); err != nil {
 		panic(err)
