@@ -6,9 +6,11 @@ import (
 	"github.com/dotcloud/docker/devmapper"
 	"github.com/dotcloud/docker/utils"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -44,6 +46,9 @@ func nuke(runtime *Runtime) error {
 		}(container)
 	}
 	wg.Wait()
+	for _, container := range runtime.List() {
+		container.EnsureUnmounted()
+	}
 	return os.RemoveAll(runtime.config.GraphPath)
 }
 

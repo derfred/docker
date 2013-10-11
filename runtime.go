@@ -80,6 +80,13 @@ func (runtime *Runtime) getContainerElement(id string) *list.Element {
 	return nil
 }
 
+func (runtime *Runtime) GetDeviceSet() (DeviceSet, error) {
+	if runtime.config.DeviceSet == nil {
+		return nil, fmt.Errorf("No device set available")
+	}
+	return runtime.config.DeviceSet, nil
+}
+
 // Get looks for a container by the specified ID or name, and returns it.
 // If the container is not found, or if an error occurs, nil is returned.
 func (runtime *Runtime) Get(name string) *Container {
@@ -238,6 +245,24 @@ func (runtime *Runtime) Destroy(container *Container) error {
 	runtime.containers.Remove(element)
 	if err := os.RemoveAll(container.root); err != nil {
 		return fmt.Errorf("Unable to remove filesystem for %v: %v", container.ID, err)
+	}
+	if runtime.config.DeviceSet.HasDevice(container.ID) {
+		if err := runtime.config.DeviceSet.RemoveDevice(container.ID); err != nil {
+			return fmt.Errorf("Unable to remove device for %v: %v", container.ID, err)
+		}
+	}
+	return nil
+}
+
+func (runtime *Runtime) DeleteImage(id string) error {
+	err := runtime.graph.Delete(id)
+	if err != nil {
+		return err
+	}
+	if runtime.config.DeviceSet.HasDevice(id) {
+		if err := runtime.config.DeviceSet.RemoveDevice(id); err != nil {
+			return fmt.Errorf("Unable to remove device for %v: %v", id, err)
+		}
 	}
 	return nil
 }
