@@ -84,6 +84,59 @@ func layerArchive(tarfile string) (io.Reader, error) {
 	return f, nil
 }
 
+// Remove any leftover device mapper devices from earlier runs of the unit tests
+func removeDev(name string) {
+	path := filepath.Join("/dev/mapper", name)
+	fd, err := syscall.Open(path, syscall.O_RDONLY, 07777)
+	if err != nil {
+		if err == syscall.ENXIO {
+			// No device for this node, just remove it
+			os.Remove(path)
+			return
+		}
+	} else {
+		syscall.Close(fd)
+	}
+	if err := devmapper.RemoveDevice(name); err != nil {
+		log.Fatalf("Unable to remove device %s needed to get a freash unit test environment", name)
+	}
+}
+
+func cleanupDevMapper() {
+	// Unmount any leftover mounts from previous unit test runs
+	if data, err := ioutil.ReadFile("/proc/mounts"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			cols := strings.Split(line, " ")
+			if len(cols) >= 2 && strings.HasPrefix(cols[0], "/dev/mapper/docker-unit-tests-devices") {
+				err = syscall.Unmount(cols[1], 0)
+				if err != nil {
+					log.Fatalf("Unable to unmount %s needed to get a freash unit test environment: %s", cols[1], err)
+				}
+			}
+		}
+	}
+
+	// Remove any leftover devmapper devices from previous unit run tests
+	infos, _ := ioutil.ReadDir("/dev/mapper")
+	if infos != nil {
+		hasPool := false
+		for _, info := range infos {
+			name := info.Name()
+			if strings.HasPrefix(name, "docker-unit-tests-devices-") {
+				if name == "docker-unit-tests-devices-pool" {
+					hasPool = true
+				} else {
+					removeDev(name)
+				}
+			}
+			// We need to remove the pool last as the other devices block it
+			if hasPool {
+				removeDev("docker-unit-tests-devices-pool")
+			}
+		}
+	}
+}
+
 func init() {
 	os.Setenv("TEST", "1")
 
@@ -95,6 +148,14 @@ func init() {
 
 	if uid := syscall.Geteuid(); uid != 0 {
 		log.Fatal("docker tests need to be run as root")
+	}
+
+	cleanupDevMapper()
+
+	// Always start from a clean set of loopback mounts
+	err := os.RemoveAll(unitTestStoreDevicesBase)
+	if err != nil {
+		panic(err)
 	}
 
 	deviceset := devmapper.NewDeviceSetDM(unitTestStoreDevicesBase)
