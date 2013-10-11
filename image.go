@@ -198,7 +198,7 @@ func (image *Image) Changes(rw string) ([]Change, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Changes(layers, rw)
+	return ChangesAUFS(layers, rw)
 }
 
 func (image *Image) ShortID() string {
