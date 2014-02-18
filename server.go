@@ -100,6 +100,7 @@ func jobInitServer(job *engine.Job) engine.Status {
 		"push":             srv.ImagePush,
 		"containers":       srv.Containers,
 		"auth":             srv.Auth,
+		"driver":           srv.Driver,
 	} {
 		if err := job.Eng.Register(name, handler); err != nil {
 			return job.Error(err)
@@ -198,6 +199,18 @@ func (srv *Server) ContainerKill(job *engine.Job) engine.Status {
 	} else {
 		return job.Errorf("No such container: %s", name)
 	}
+	return engine.StatusOK
+}
+
+func (srv *Server) Driver(job *engine.Job) engine.Status {
+	if n := len(job.Args); n < 1 {
+		return job.Errorf("Usage: %s OPERATION [args]", job.Name)
+	}
+
+	if err := srv.runtime.driver.Operation(job.Args[0], job.Args[1:]); err != nil {
+		return job.Error(err)
+	}
+
 	return engine.StatusOK
 }
 
