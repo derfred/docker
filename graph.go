@@ -127,9 +127,10 @@ func (graph *Graph) Get(name string) (*Image, error) {
 }
 
 // Create creates a new image and registers it in the graph.
-func (graph *Graph) Create(layerData archive.ArchiveReader, container *Container, comment, author string, config *runconfig.Config) (*Image, error) {
+func (graph *Graph) Create(layerData archive.ArchiveReader, container *Container, parent, comment, author string, config *runconfig.Config) (*Image, error) {
 	img := &Image{
 		ID:            GenerateID(),
+		Parent:        parent,
 		Comment:       comment,
 		Created:       time.Now().UTC(),
 		DockerVersion: dockerversion.VERSION,
@@ -139,7 +140,6 @@ func (graph *Graph) Create(layerData archive.ArchiveReader, container *Container
 		OS:            runtime.GOOS,
 	}
 	if container != nil {
-		img.Parent = container.Image
 		img.Container = container.ID
 		img.ContainerConfig = *container.Config
 	}

@@ -86,6 +86,7 @@ func jobInitServer(job *engine.Job) engine.Status {
 		"viz":              srv.ImagesViz,
 		"container_copy":   srv.ContainerCopy,
 		"insert":           srv.ImageInsert,
+		"squash":           srv.ImageSquash,
 		"attach":           srv.ContainerAttach,
 		"search":           srv.ImagesSearch,
 		"changes":          srv.ContainerChanges,
@@ -1061,6 +1062,45 @@ func (srv *Server) ContainerCommit(job *engine.Job) engine.Status {
 	return engine.StatusOK
 }
 
+func (srv *Server) ImageSquash(job *engine.Job) engine.Status {
+	if len(job.Args) != 2 {
+		return job.Errorf("Not enough arguments. Usage: %s BASEIMAGE IMAGE\n", job.Name)
+	}
+
+	base, err := srv.runtime.repositories.LookupImage(job.Args[0])
+	if err != nil {
+		return job.Errorf("No such image: %s", job.Args[0])
+	}
+	leaf, err := srv.runtime.repositories.LookupImage(job.Args[1])
+	if err != nil {
+		return job.Errorf("No such image: %s", job.Args[1])
+	}
+
+	foundBase := false
+	leaf.WalkHistory(func(img *Image) error {
+		if img.ID == base.ID {
+			foundBase = true
+		}
+		return nil
+	})
+
+	if !foundBase || base == leaf {
+		return job.Errorf("No %s is not decendant from %s", job.Args[1], job.Args[0])
+	}
+
+	comment := job.Getenv("comment")
+	if comment == "" {
+		comment = "Squashed from " + leaf.ID
+	}
+
+	img, err := srv.runtime.Squash(base, leaf, job.Getenv("repo"), job.Getenv("tag"), comment)
+	if err != nil {
+		return job.Error(err)
+	}
+	job.Printf("%s\n", img.ID)
+	return engine.StatusOK
+}
+
 func (srv *Server) ImageTag(job *engine.Job) engine.Status {
 	if len(job.Args) != 2 && len(job.Args) != 3 {
 		return job.Errorf("Usage: %s IMAGE REPOSITORY [TAG]\n", job.Name)
@@ -1609,7 +1649,7 @@ func (srv *Server) ImageImport(job *engine.Job) engine.Status {
 		defer progressReader.Close()
 		archive = progressReader
 	}
-	img, err := srv.runtime.graph.Create(archive, nil, "Imported from "+src, "", nil)
+	img, err := srv.runtime.graph.Create(archive, nil, "", "Imported from "+src, "", nil)
 	if err != nil {
 		return job.Error(err)
 	}

@@ -533,10 +533,57 @@ func (runtime *Runtime) Commit(container *Container, repository, tag, comment, a
 	defer rwTar.Close()
 
 	// Create a new image from the container's base layers + a new layer from container changes
-	img, err := runtime.graph.Create(rwTar, container, comment, author, config)
+	img, err := runtime.graph.Create(rwTar, container, container.Image, comment, author, config)
 	if err != nil {
 		return nil, err
 	}
+	// Register the image if needed
+	if repository != "" {
+		if err := runtime.repositories.Set(repository, tag, img.ID, true); err != nil {
+			return img, err
+		}
+	}
+	return img, nil
+}
+
+// Squash creates a new filesystem image by combining multiple layers
+// The image can optionally be tagged into a repository
+func (runtime *Runtime) Squash(base *Image, leaf *Image, repository, tag, comment string) (*Image, error) {
+	basePath, err := runtime.driver.Get(base.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer runtime.driver.Put(base.ID)
+
+	leafPath, err := runtime.driver.Get(leaf.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer runtime.driver.Put(leaf.ID)
+
+	changes, err := archive.ChangesDirs(basePath, leafPath)
+	if err != nil {
+		return nil, err
+	}
+
+	archive, err := archive.ExportChanges(leafPath, changes)
+	if err != nil {
+		return nil, err
+	}
+	defer archive.Close()
+
+	config := leaf.Config
+	// Make a copy of the config in case it is modified
+	if config != nil {
+		c := *config
+		config = &c
+	}
+
+	img, err := runtime.graph.Create(archive, nil, base.ID, comment, leaf.Author, config)
+	if err != nil {
+		return nil, err
+	}
+
 	// Register the image if needed
 	if repository != "" {
 		if err := runtime.repositories.Set(repository, tag, img.ID, true); err != nil {

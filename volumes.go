@@ -246,7 +246,7 @@ func createVolumes(container *Container) error {
 			// Do not pass a container as the parameter for the volume creation.
 			// The graph driver using the container's information ( Image ) to
 			// create the parent.
-			c, err := container.runtime.volumes.Create(nil, nil, "", "", nil)
+			c, err := container.runtime.volumes.Create(nil, nil, "", "", "", nil)
 			if err != nil {
 				return err
 			}
